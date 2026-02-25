@@ -3,6 +3,26 @@ import { load } from "cheerio";
 import iconv from "iconv-lite";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import fs from "node:fs";
+
+const __filename = fileURLToPath(import.meta.url);
+const projectRoot = path.resolve(__filename, "..");
+const publicDir = path.join(projectRoot, "public");
+import { load } from "cheerio";
+import iconv from "iconv-lite";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+import fs from "node:fs";
+
+const __filename = fileURLToPath(import.meta.url);
+const isVercel = process.env.VERCEL === "true";
+const __dirname = isVercel 
+  ? path.join(process.cwd(), ".vercel/output/functions/server.func/.vc-config/resources") 
+  : path.dirname(__filename);
+import { load } from "cheerio";
+import iconv from "iconv-lite";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -48,7 +68,7 @@ const queryHeaders = {
   "Accept-Language": "ko-KR,ko;q=0.9,en;q=0.8"
 };
 
-app.use(express.static(path.join(__dirname, "public")));
+app.use(express.static(publicDir));
 
 app.get("/api/config/providers", (_, res) => {
   res.json({ libraryProviders, eunpyeongUnified, samStore });
