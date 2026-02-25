@@ -6,6 +6,9 @@ import { fileURLToPath } from "node:url";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+// In Vercel, use process.cwd() which points to the project root
+const staticDir = process.cwd() + "/public";
+const __dirname = path.dirname(__filename);
 const staticDir = process.env.VERCEL 
   ? path.join(process.cwd(), "public") 
   : path.join(__dirname, "public");
