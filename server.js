@@ -6,6 +6,9 @@ import { fileURLToPath } from "node:url";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+
+const app = express();
+const __dirname = path.dirname(__filename);
 // In Vercel, use process.cwd() which points to the project root
 const staticDir = process.cwd() + "/public";
 const __dirname = path.dirname(__filename);
@@ -50,6 +53,18 @@ const samStore = {
 };
 
 const queryHeaders = {
+  "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/132.0.0.0 Safari/537.36",
+  Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+  "Accept-Language": "ko-KR,ko;q=0.9,en;q=0.8"
+};
+
+// Explicit static file routes
+app.get("/favicon.svg", (_, res) => {
+  const faviconPath = path.join(__dirname, "public", "favicon.svg");
+  res.sendFile(faviconPath);
+});
+
+app.use(express.static(path.join(__dirname, "public")));
   "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/132.0.0.0 Safari/537.36",
   Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
   "Accept-Language": "ko-KR,ko;q=0.9,en;q=0.8"
