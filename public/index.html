@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="ko">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>서울 전자도서관 검색</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <main class="app-shell">
+      <section class="hero">
+        <h1>서울 전자도서관 한 번에 검색</h1>
+        <p>책 제목으로 서울 전역 전자도서관의 보유/대출가능/예약 신호를 모아서 보여줍니다.</p>
+      </section>
+
+      <section class="search-panel">
+        <form id="search-form">
+          <input id="q" name="q" type="text" placeholder="예: 클린 코드" autocomplete="off" required />
+          <button type="submit">검색</button>
+        </form>
+        <p class="hint">우선순위: 서울 전역 전자도서관 → 은평 통합검색 → 교보 SAM</p>
+      </section>
+
+      <section id="flow"></section>
+      <section id="result"></section>
+    </main>
+
+    <template id="book-row-template">
+      <article class="book-row">
+        <div class="book-meta">
+          <h4 class="book-title"></h4>
+          <p class="book-status"></p>
+          <p class="book-counts"></p>
+        </div>
+        <div class="book-actions">
+          <a class="book-link" target="_blank" rel="noopener noreferrer">검색 결과 열기</a>
+        </div>
+      </article>
+    </template>
+
+    <script type="module" src="/app.js"></script>
+  </body>
+</html>
