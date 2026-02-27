@@ -8,33 +8,120 @@
     <link rel="stylesheet" href="/styles.css" />
   </head>
   <body>
-    <main class="app-shell">
-      <section class="hero">
-        <h1>서울 전자도서관 한 번에 검색</h1>
-        <p>책 제목으로 서울 전역 전자도서관의 보유/대출가능/예약 신호를 모아서 보여줍니다.</p>
-      </section>
+    <div class="bg-orb bg-orb-blue" aria-hidden="true"></div>
+    <div class="bg-orb bg-orb-orange" aria-hidden="true"></div>
 
-      <section class="search-panel">
+    <main class="app-shell">
+      <header class="topbar">
+        <div class="brand">
+          <img
+            class="brand-logo"
+            src="/seoul-shelf-logo.png"
+            alt="서울 책장 로고"
+            width="36"
+            height="36"
+          />
+          <div>
+            <p class="brand-kicker">SEOUL E-BOOK</p>
+            <h1>서울 eBook Finder</h1>
+          </div>
+        </div>
+        <div class="topbar-meta">
+          <p class="meta-pill" id="supported-count">지원 도서관 0개</p>
+          <p class="meta-pill"><span aria-hidden="true"></span>실시간 분석</p>
+        </div>
+      </header>
+
+      <section class="hero">
+        <p class="hero-kicker">서울 전역 전자도서관 통합 탐색</p>
+        <h2>검색 직후, 어디서 바로 빌릴 수 있는지 먼저 보여줍니다</h2>
+        <p class="hero-desc">
+          검색 결과에서 대출 가능 여부를 먼저 확인하고, 필요하면 다음 단계로 이동하세요.
+        </p>
         <form id="search-form">
-          <input id="q" name="q" type="text" placeholder="예: 클린 코드" autocomplete="off" required />
+          <label for="q" class="sr-only">도서 검색어</label>
+          <input
+            id="q"
+            name="q"
+            type="text"
+            placeholder="예: 클린 코드"
+            autocomplete="off"
+            aria-describedby="search-help"
+            required
+          />
           <button type="submit">검색</button>
         </form>
-        <p class="hint">우선순위: 서울 전역 전자도서관 → 은평 통합검색 → 교보 SAM</p>
+        <p id="search-help" class="sr-only">책 제목 또는 키워드를 입력하고 검색 버튼을 누르세요.</p>
+        <section class="supported-panel">
+          <div class="section-head">
+            <h3>지원 도서관</h3>
+            <p>현재 연동 가능한 전자도서관 목록</p>
+          </div>
+          <div id="supported-libraries" class="supported-list">
+            <p class="supported-empty">불러오는 중...</p>
+          </div>
+        </section>
       </section>
 
-      <section id="flow"></section>
-      <section id="result"></section>
+      <section class="results-panel">
+        <div class="results-layout">
+          <div class="results-main">
+            <div class="results-head">
+              <div>
+                <h3>도서관 상세 결과</h3>
+                <p id="result-meta" aria-live="polite">즉시대출 가능 도서관이 상단에 우선 배치됩니다.</p>
+              </div>
+              <p id="search-time" class="search-time" role="status" aria-live="polite"></p>
+            </div>
+            <div id="result" class="results-list" aria-live="polite" aria-busy="false"></div>
+          </div>
+          <aside class="results-side">
+            <article class="guide-card">
+              <h4>탐색 흐름</h4>
+              <div id="flow" class="flow-list"></div>
+            </article>
+            <article class="guide-card" id="fallback-links">
+              <h4>대안 바로가기</h4>
+              <p class="guide-muted">검색 후 자동 안내됩니다.</p>
+            </article>
+            <article class="guide-card">
+              <h4>안내</h4>
+              <p>최종 대출/예약 가능 여부는 각 도서관 상세 페이지에서 확인하세요.</p>
+            </article>
+          </aside>
+        </div>
+      </section>
     </main>
 
-    <template id="book-row-template">
-      <article class="book-row">
-        <div class="book-meta">
-          <h4 class="book-title"></h4>
-          <p class="book-status"></p>
-          <p class="book-counts"></p>
+    <template id="provider-card-template">
+      <article class="provider-card">
+        <header class="provider-head">
+          <div>
+            <h4 class="provider-name"></h4>
+            <p class="provider-meta"></p>
+            <div class="provider-tags"></div>
+          </div>
+          <p class="provider-highlight"></p>
+        </header>
+        <div class="provider-links">
+          <a class="search-link" target="_blank" rel="noopener noreferrer">검색 페이지</a>
+          <a class="login-link" target="_blank" rel="noopener noreferrer">로그인 페이지</a>
         </div>
-        <div class="book-actions">
-          <a class="book-link" target="_blank" rel="noopener noreferrer">검색 결과 열기</a>
+        <div class="provider-books"></div>
+      </article>
+    </template>
+
+    <template id="book-row-template">
+      <article class="book-item">
+        <img class="book-cover" loading="lazy" decoding="async" alt="" />
+        <a class="book-detail-link" target="_blank" rel="noopener noreferrer">
+          <p class="book-title"></p>
+        </a>
+        <p class="book-source"></p>
+        <p class="book-status"></p>
+        <p class="book-counts"></p>
+        <div class="book-action-links">
+          <a class="book-preview-link" target="_blank" rel="noopener noreferrer">미리보기</a>
         </div>
       </article>
     </template>
