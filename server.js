@@ -48,16 +48,46 @@ const queryHeaders = {
   "Accept-Language": "ko-KR,ko;q=0.9,en;q=0.8"
 };
 
+const MAX_QUERY_LENGTH = Number(process.env.MAX_QUERY_LENGTH || 80);
+const PROVIDER_FETCH_TIMEOUT_MS = Number(process.env.PROVIDER_FETCH_TIMEOUT_MS || 6500);
+const SEARCH_CACHE_TTL_MS = Number(process.env.SEARCH_CACHE_TTL_MS || 120000);
+const RATE_LIMIT_WINDOW_MS = Number(process.env.RATE_LIMIT_WINDOW_MS || 60000);
+const RATE_LIMIT_MAX_REQUESTS = Number(process.env.RATE_LIMIT_MAX_REQUESTS || 20);
+const INVALID_CONTROL_CHAR_PATTERN = /[\u0000-\u001F\u007F]/;
+
+const searchCache = new Map();
+const searchRateLimitBuckets = new Map();
+
 app.use(express.static(path.join(__dirname, "public")));
 
 app.get("/api/config/providers", (_, res) => {
-  res.json({ libraryProviders, eunpyeongUnified, samStore });
+  res.json({
+    libraryProviders: libraryProviders.map((provider) => ({
+      ...provider,
+      libraryModel: resolveLibraryModel(provider)
+    })),
+    eunpyeongUnified,
+    samStore
+  });
 });
 
 app.get("/api/search", async (req, res) => {
   const query = (req.query.q || "").toString().trim();
-  if (!query) {
-    return res.status(400).json({ error: "검색어(q)가 필요합니다." });
+  const validationError = validateQuery(query);
+  if (validationError) {
+    return res.status(400).json({ error: validationError });
+  }
+
+  if (!consumeSearchRateLimit(req.ip || "unknown")) {
+    return res.status(429).json({
+      error: "요청이 너무 많습니다. 잠시 후 다시 시도해 주세요."
+    });
+  }
+
+  const cacheKey = normalizeQueryForCache(query);
+  const cached = getCachedSearchPayload(cacheKey);
+  if (cached) {
+    return res.json({ ...cached, cacheHit: true });
   }
 
   const libraryResults = await Promise.all(
@@ -65,7 +95,7 @@ app.get("/api/search", async (req, res) => {
   );
 
   const anyBorrowable = libraryResults.some((result) =>
-    result.books.some((book) => book.decision.state === "borrow_now")
+    result.books.some((book) => isImmediateBorrowCandidate(book))
   );
 
   const flow = {
@@ -86,12 +116,16 @@ app.get("/api/search", async (req, res) => {
     }
   };
 
-  return res.json({
+  const payload = {
     query,
     searchedAt: new Date().toISOString(),
     libraryResults,
     flow
-  });
+  };
+
+  setCachedSearchPayload(cacheKey, payload);
+
+  return res.json(payload);
 });
 
 if (!process.env.VERCEL) {
@@ -105,26 +139,34 @@ export default app;
 
 async function searchProvider(provider, query) {
   const searchURL = constructURL(provider, query);
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), PROVIDER_FETCH_TIMEOUT_MS);
 
   try {
-    const response = await fetch(searchURL, { headers: queryHeaders });
-    const html = await response.text();
+    const response = await fetch(searchURL, { headers: queryHeaders, signal: controller.signal });
+    const html = await decodeProviderHtml(response, provider);
 
-    const books = parseBooksFromHtml(html, query)
+    const books = parseBooksFromHtml(html, query, searchURL)
       .slice(0, 8)
-      .map((book) => ({
-        ...book,
-        providerId: provider.id,
-        providerName: provider.name,
-        decision:
-          provider.subscriptionListAvailable && book.title
-            ? {
-                state: "borrow_now",
-                confidence: "medium",
-                reason: "subscription_provider_listed"
-              }
-            : book.decision
-      }));
+      .map((book) => {
+        const { detailOnclick, previewOnclick, ...safeBook } = book;
+        return {
+          ...safeBook,
+          detailURL: resolveDetailURL(book.detailURL, searchURL, detailOnclick),
+          previewURL: resolvePreviewURL(book.previewURL, previewOnclick, searchURL),
+          coverImageURL: resolveCoverImageURL(book.coverImageURL, searchURL),
+          providerId: provider.id,
+          providerName: provider.name,
+          decision:
+            provider.subscriptionListAvailable && book.title
+              ? {
+                  state: "borrow_now",
+                  confidence: "medium",
+                  reason: "subscription_provider_listed"
+                }
+              : book.decision
+        };
+      });
 
     return {
       providerId: provider.id,
@@ -132,40 +174,47 @@ async function searchProvider(provider, query) {
       searchURL,
       loginURL: provider.loginURL,
       isSubscriptionProvider: Boolean(provider.subscriptionListAvailable),
+      libraryModel: resolveLibraryModel(provider),
       searchable: response.ok,
       ok: response.ok,
       statusCode: response.status,
       books
     };
   } catch (error) {
+    const message = normalizeProviderError(error);
     return {
       providerId: provider.id,
       providerName: provider.name,
       searchURL,
       loginURL: provider.loginURL,
       isSubscriptionProvider: Boolean(provider.subscriptionListAvailable),
+      libraryModel: resolveLibraryModel(provider),
       searchable: false,
       ok: false,
       statusCode: 0,
-      error: error instanceof Error ? error.message : "Unknown error",
+      error: message,
       books: []
     };
+  } finally {
+    clearTimeout(timeoutId);
   }
 }
 
-function parseBooksFromHtml(html, query) {
+function parseBooksFromHtml(html, query, searchURL) {
   const $ = load(html);
   const normalizedQuery = normalizeKorean(query);
 
   const candidates = [];
   const selectors = [
-    "li",
+    ".book_resultList > li",
     ".book_item",
-    ".book-list li",
-    ".search-result li",
-    ".bookList li",
-    ".cont_list li",
-    ".listType li",
+    ".book-list > li",
+    ".ebook-list > .bx",
+    ".search-result > li",
+    ".bookList > li",
+    ".cont_list > li",
+    ".listType > li",
+    "li:has(.tit)",
     "article"
   ];
 
@@ -209,10 +258,22 @@ function parseBooksFromHtml(html, query) {
         reservationCount
       });
 
-      const detailURL = node.find("a[href]").first().attr("href") || null;
+      const detailAnchor = pickDetailAnchor(node, $);
+      const detailURL = detailAnchor?.attr("href") || null;
+      const detailOnclick = detailAnchor?.attr("onclick") || "";
+      const previewAnchor = pickPreviewAnchor(node, $);
+      const previewURL = previewAnchor?.attr("href") || null;
+      const previewOnclick = previewAnchor?.attr("onclick") || "";
+      const coverImageURL = node.find("img[src]").first().attr("src") || null;
+      const storeName = detectStoreName(node, text);
       candidates.push({
         title,
+        storeName,
         detailURL,
+        detailOnclick,
+        previewURL,
+        previewOnclick,
+        coverImageURL,
         holdingsCount: resolvedHoldings,
         availableCount: resolvedAvailable,
         loanedCount: resolvedLoaned,
@@ -223,7 +284,7 @@ function parseBooksFromHtml(html, query) {
     });
   }
 
-  return uniqueByTitle(candidates)
+  return uniqueByTitleAndStore(candidates)
     .sort((a, b) => scoreBook(b) - scoreBook(a))
     .slice(0, 12);
 }
@@ -341,10 +402,10 @@ function pickNumber(text, patterns) {
   return null;
 }
 
-function uniqueByTitle(items) {
+function uniqueByTitleAndStore(items) {
   const map = new Map();
   for (const item of items) {
-    const key = normalizeKorean(item.title);
+    const key = `${normalizeKorean(item.title)}::${normalizeStoreName(item.storeName) || "unknown"}`;
     if (!map.has(key)) {
       map.set(key, item);
       continue;
@@ -356,6 +417,33 @@ function uniqueByTitle(items) {
   return Array.from(map.values());
 }
 
+function detectStoreName(node, text) {
+  const badgeText = compactText(node.find(".store").first().text() || "");
+  if (badgeText) {
+    return normalizeStoreName(badgeText);
+  }
+  return normalizeStoreName(text);
+}
+
+function normalizeStoreName(value) {
+  if (!value) {
+    return null;
+  }
+
+  const text = compactText(value);
+  if (!text) {
+    return null;
+  }
+
+  if (/yes24/i.test(text)) {
+    return "YES24";
+  }
+  if (/교보\s*문고|교보문고|kyobo/i.test(text)) {
+    return "교보문고";
+  }
+  return null;
+}
+
 function compactText(value) {
   return value.replace(/\s+/g, " ").trim();
 }
@@ -364,9 +452,332 @@ function normalizeKorean(value) {
   return value.toLowerCase().replace(/\s+/g, "").normalize("NFKC");
 }
 
+function pickDetailAnchor(node, $) {
+  const anchors = node.find("a[href]");
+  if (!anchors.length) {
+    return null;
+  }
+
+  const onclickAnchor = anchors.filter((_, el) => {
+    const onclick = $(el).attr("onclick") || "";
+    return onclick.includes("fnContentClick");
+  });
+  if (onclickAnchor.length) {
+    return onclickAnchor.first();
+  }
+
+  const contentViewAnchor = anchors.filter((_, el) => {
+    const href = ($(el).attr("href") || "").toLowerCase();
+    return href.includes("content/contentview.ink");
+  });
+  if (contentViewAnchor.length) {
+    return contentViewAnchor.first();
+  }
+
+  return anchors.first();
+}
+
+function pickPreviewAnchor(node, $) {
+  const anchors = node.find("a[href], a[onclick]");
+  if (!anchors.length) {
+    return null;
+  }
+
+  const previewOnclickAnchor = anchors.filter((_, el) => {
+    const onclick = ($(el).attr("onclick") || "").toLowerCase();
+    return onclick.includes("fncontentpreview");
+  });
+  if (previewOnclickAnchor.length) {
+    return previewOnclickAnchor.first();
+  }
+
+  const previewTextAnchor = anchors.filter((_, el) => {
+    const text = compactText($(el).text() || "");
+    return text.includes("미리보기");
+  });
+  if (previewTextAnchor.length) {
+    return previewTextAnchor.first();
+  }
+
+  return null;
+}
+
 function constructURL(provider, searchTerm) {
   const encoded = provider.isEucKR ? encodeEucKR(searchTerm) : encodeURIComponent(searchTerm);
   return provider.baseURL.replace("{searchTerm}", encoded);
+}
+
+function isImmediateBorrowCandidate(book) {
+  return (
+    book?.decision?.state === "borrow_now" &&
+    book.decision?.reason !== "subscription_provider_listed"
+  );
+}
+
+function validateQuery(query) {
+  if (!query) {
+    return "검색어(q)가 필요합니다.";
+  }
+
+  if (query.length > MAX_QUERY_LENGTH) {
+    return `검색어는 ${MAX_QUERY_LENGTH}자 이하로 입력해 주세요.`;
+  }
+
+  if (INVALID_CONTROL_CHAR_PATTERN.test(query)) {
+    return "유효하지 않은 문자가 포함되어 있습니다.";
+  }
+
+  return null;
+}
+
+function normalizeQueryForCache(query) {
+  return normalizeKorean(query);
+}
+
+function getCachedSearchPayload(cacheKey) {
+  const entry = searchCache.get(cacheKey);
+  if (!entry) {
+    return null;
+  }
+
+  if (entry.expiresAt <= Date.now()) {
+    searchCache.delete(cacheKey);
+    return null;
+  }
+
+  return entry.payload;
+}
+
+function setCachedSearchPayload(cacheKey, payload) {
+  searchCache.set(cacheKey, {
+    expiresAt: Date.now() + SEARCH_CACHE_TTL_MS,
+    payload
+  });
+
+  if (searchCache.size < 300) {
+    return;
+  }
+
+  const now = Date.now();
+  for (const [key, entry] of searchCache.entries()) {
+    if (entry.expiresAt <= now) {
+      searchCache.delete(key);
+    }
+  }
+}
+
+function consumeSearchRateLimit(clientKey) {
+  const now = Date.now();
+  const key = clientKey || "unknown";
+  const bucket = searchRateLimitBuckets.get(key);
+
+  if (!bucket || bucket.expiresAt <= now) {
+    searchRateLimitBuckets.set(key, {
+      count: 1,
+      expiresAt: now + RATE_LIMIT_WINDOW_MS
+    });
+    return true;
+  }
+
+  if (bucket.count >= RATE_LIMIT_MAX_REQUESTS) {
+    return false;
+  }
+
+  bucket.count += 1;
+
+  if (searchRateLimitBuckets.size < 1000) {
+    return true;
+  }
+
+  for (const [bucketKey, entry] of searchRateLimitBuckets.entries()) {
+    if (entry.expiresAt <= now) {
+      searchRateLimitBuckets.delete(bucketKey);
+    }
+  }
+
+  return true;
+}
+
+async function decodeProviderHtml(response, provider) {
+  const charset = resolveResponseCharset(response.headers.get("content-type"), provider);
+  const buffer = Buffer.from(await response.arrayBuffer());
+
+  try {
+    return iconv.decode(buffer, charset);
+  } catch {
+    return buffer.toString("utf8");
+  }
+}
+
+function resolveResponseCharset(contentType, provider) {
+  const fallback = provider.isEucKR ? "euc-kr" : "utf-8";
+  if (!contentType) {
+    return fallback;
+  }
+
+  const match = contentType.match(/charset\s*=\s*["']?([^;"'\s]+)/i);
+  if (!match || !match[1]) {
+    return fallback;
+  }
+
+  const raw = match[1].trim().toLowerCase();
+  if (raw === "utf8" || raw === "utf-8") {
+    return "utf-8";
+  }
+  if (raw === "euc-kr" || raw === "euckr" || raw === "ks_c_5601-1987" || raw === "cp949" || raw === "x-windows-949") {
+    return "euc-kr";
+  }
+  return fallback;
+}
+
+function normalizeProviderError(error) {
+  if (error?.name === "AbortError") {
+    return `요청 시간 초과 (${PROVIDER_FETCH_TIMEOUT_MS}ms)`;
+  }
+  if (error instanceof Error) {
+    return error.message;
+  }
+  return "Unknown error";
+}
+
+function resolvePreviewURL(rawURL, onclick, searchURL) {
+  const directURL = resolveSafeAbsoluteURL(rawURL, searchURL);
+  if (directURL) {
+    return directURL;
+  }
+
+  const previewParams = extractFnContentPreviewParams(onclick);
+  if (!previewParams || !previewParams.brcd) {
+    return null;
+  }
+
+  try {
+    const previewURL = new URL("/elibrary-front/popup/popPreview.ink", searchURL);
+    previewURL.searchParams.set("type", "web");
+    previewURL.searchParams.set("brcd", previewParams.brcd);
+    if (previewParams.spenDvsnCode) {
+      previewURL.searchParams.set("spenDvsnCode", previewParams.spenDvsnCode);
+    }
+    if (previewParams.sntnAuthCode) {
+      previewURL.searchParams.set("sntnAuthCode", previewParams.sntnAuthCode);
+    }
+    return previewURL.toString();
+  } catch {
+    return null;
+  }
+}
+
+function resolveCoverImageURL(rawURL, searchURL) {
+  const resolved = resolveSafeAbsoluteURL(rawURL, searchURL);
+  if (!resolved) {
+    return null;
+  }
+
+  try {
+    const imageURL = new URL(resolved);
+    imageURL.hash = "";
+    return imageURL.toString();
+  } catch {
+    return resolved;
+  }
+}
+
+function resolveSafeAbsoluteURL(rawURL, baseURL) {
+  if (!rawURL) {
+    return null;
+  }
+
+  const trimmed = rawURL.trim();
+  if (!trimmed || trimmed === "#" || /^javascript:/i.test(trimmed)) {
+    return null;
+  }
+
+  try {
+    return new URL(trimmed, baseURL).toString();
+  } catch {
+    return null;
+  }
+}
+
+function resolveDetailURL(rawURL, searchURL, onclick) {
+  const safeURL = resolveSafeAbsoluteURL(rawURL, searchURL);
+  if (!safeURL) {
+    return null;
+  }
+
+  try {
+    const resolved = new URL(safeURL);
+    const clickParams = extractFnContentClickParams(onclick);
+
+    if (clickParams) {
+      if (clickParams.cttsDvsnCode) {
+        resolved.searchParams.set("cttsDvsnCode", clickParams.cttsDvsnCode);
+      }
+      if (clickParams.brcd) {
+        resolved.searchParams.set("brcd", clickParams.brcd);
+      }
+      if (clickParams.ctgrId) {
+        resolved.searchParams.set("ctgrId", clickParams.ctgrId);
+      }
+      resolved.searchParams.set("sntnAuthCode", clickParams.sntnAuthCode || "");
+      if (clickParams.spenDvsnCode) {
+        resolved.searchParams.set("spenDvsnCode", clickParams.spenDvsnCode);
+      }
+    }
+
+    const path = resolved.pathname.toLowerCase();
+    if (path.endsWith("/content/contentview.ink") && !resolved.searchParams.get("brcd")) {
+      return null;
+    }
+
+    return resolved.toString();
+  } catch {
+    return null;
+  }
+}
+
+function extractFnContentPreviewParams(onclick) {
+  if (!onclick || !onclick.includes("fnContentPreview")) {
+    return null;
+  }
+
+  const args = Array.from(onclick.matchAll(/'([^']*)'/g), (match) => match[1]);
+  if (args.length < 5) {
+    return null;
+  }
+
+  return {
+    adltYN: args[0] || "",
+    cttsDvsnCode: args[1] || "",
+    ctgrId: args[2] || "",
+    brcd: args[3] || "",
+    spenDvsnCode: args[4] || "",
+    sntnAuthCode: args[5] || ""
+  };
+}
+
+function extractFnContentClickParams(onclick) {
+  if (!onclick || !onclick.includes("fnContentClick")) {
+    return null;
+  }
+
+  const args = Array.from(onclick.matchAll(/'([^']*)'/g), (match) => match[1]);
+  if (args.length < 4) {
+    return null;
+  }
+
+  return {
+    cttsDvsnCode: args[0] || "",
+    brcd: args[1] || "",
+    ctgrId: args[2] || "",
+    sntnAuthCode: args[3] || "",
+    adltYN: args[4] || "",
+    spenDvsnCode: args[5] || ""
+  };
+}
+
+function resolveLibraryModel(provider) {
+  return provider.subscriptionListAvailable ? "subscription" : "owned";
 }
 
 function encodeEucKR(string) {
