@@ -1,0 +1,674 @@
+{
+  "version": "2.8",
+  "children": [
+    {
+      "type": "frame",
+      "id": "bi8Au",
+      "x": 160,
+      "y": 327,
+      "name": "Seoul Ebook Search v2",
+      "clip": true,
+      "width": 1440,
+      "height": 2150,
+      "fill": "#F5F8FD",
+      "layout": "vertical",
+      "gap": 24,
+      "padding": [
+        40,
+        40,
+        56,
+        40
+      ],
+      "children": [
+        {
+          "type": "frame",
+          "id": "8CysL",
+          "name": "Top Bar",
+          "width": "fill_container",
+          "fill": "#FFFFFF",
+          "cornerRadius": 18,
+          "gap": 14,
+          "padding": [
+            16,
+            18
+          ],
+          "children": [
+            {
+              "type": "frame",
+              "id": "7LW55",
+              "name": "brandA",
+              "gap": 12,
+              "children": [
+                {
+                  "type": "frame",
+                  "id": "L7358",
+                  "name": "logoA",
+                  "width": 36,
+                  "height": 36,
+                  "fill": "url(/seoul-shelf-logo.png)",
+                  "cornerRadius": 10
+                },
+                {
+                  "type": "frame",
+                  "id": "lo0hm",
+                  "name": "brandTextA",
+                  "layout": "vertical",
+                  "gap": 4,
+                  "children": [
+                    {
+                      "type": "text",
+                      "id": "oLdqF",
+                      "name": "kickerA",
+                      "fill": "#5A8AC6",
+                      "content": "SEOUL E-BOOK FINDER",
+                      "fontFamily": "Inter",
+                      "fontSize": 11,
+                      "fontWeight": "bold"
+                    },
+                    {
+                      "type": "text",
+                      "id": "2UVmL",
+                      "name": "titleA",
+                      "fill": "#14171C",
+                      "content": "책 즉시대여 가능 도서관 찾기",
+                      "fontFamily": "Inter",
+                      "fontSize": 22,
+                      "fontWeight": "bold"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "frame",
+              "id": "HhXaX",
+              "name": "metaA",
+              "gap": 8,
+              "children": [
+                {
+                  "type": "frame",
+                  "id": "v4U7E",
+                  "name": "pillA",
+                  "fill": "#EEF5FF",
+                  "cornerRadius": 999,
+                  "padding": [
+                    8,
+                    12
+                  ],
+                  "children": [
+                    {
+                      "type": "text",
+                      "id": "H3Ejy",
+                      "name": "pillAText",
+                      "fill": "#2D5F99",
+                      "content": "검색 대상 13개관",
+                      "fontFamily": "Inter",
+                      "fontSize": 12,
+                      "fontWeight": "bold"
+                    }
+                  ]
+                },
+                {
+                  "type": "frame",
+                  "id": "qsOAA",
+                  "name": "pillB",
+                  "fill": "#EEF5FF",
+                  "cornerRadius": 999,
+                  "padding": [
+                    8,
+                    12
+                  ],
+                  "children": [
+                    {
+                      "type": "text",
+                      "id": "8Yf08",
+                      "name": "pillBText",
+                      "fill": "#2D5F99",
+                      "content": "실시간 분석",
+                      "fontFamily": "Inter",
+                      "fontSize": 12,
+                      "fontWeight": "bold"
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "frame",
+          "id": "NnI4i",
+          "name": "Search Hero",
+          "width": "fill_container",
+          "fill": "linear-gradient(145deg,#EDF6FF,#F3F8FF)",
+          "cornerRadius": 22,
+          "layout": "vertical",
+          "gap": 16,
+          "padding": 26,
+          "children": [
+            {
+              "type": "text",
+              "id": "L00Mp",
+              "name": "heroKickerA",
+              "fill": "#366CA8",
+              "content": "서울 전역 전자도서관 통합 탐색",
+              "fontFamily": "Inter",
+              "fontSize": 13,
+              "fontWeight": "bold"
+            },
+            {
+              "type": "text",
+              "id": "0wqMM",
+              "name": "heroTitleA",
+              "fill": "#11141A",
+              "content": "검색 직후, 어디서 바로 빌릴 수 있는지 먼저 보여줍니다",
+              "fontFamily": "Inter",
+              "fontSize": 34,
+              "fontWeight": "bold"
+            },
+            {
+              "type": "text",
+              "id": "LJxWX",
+              "name": "heroDescA",
+              "fill": "#4E6077",
+              "content": "검색 결과에서 대출 가능 여부를 먼저 확인하고, 필요하면 다음 단계로 이동하세요.",
+              "fontFamily": "Inter",
+              "fontSize": 15,
+              "fontWeight": "normal"
+            },
+            {
+              "type": "frame",
+              "id": "WwT5i",
+              "name": "searchShellA",
+              "width": "fill_container",
+              "fill": "#FFFFFF",
+              "cornerRadius": 16,
+              "gap": 10,
+              "padding": 10,
+              "children": [
+                {
+                  "type": "frame",
+                  "id": "ftln9",
+                  "name": "searchInputA",
+                  "width": "fill_container",
+                  "fill": "#F7FAFF",
+                  "cornerRadius": 12,
+                  "padding": [
+                    14,
+                    16
+                  ],
+                  "children": [
+                    {
+                      "type": "text",
+                      "id": "R0Ois",
+                      "name": "searchInputTextA",
+                      "fill": "#8CA0B8",
+                      "content": "예: 클린 코드",
+                      "fontFamily": "Inter",
+                      "fontSize": 15,
+                      "fontWeight": "normal"
+                    }
+                  ]
+                },
+                {
+                  "type": "frame",
+                  "id": "ZmGXv",
+                  "name": "searchBtnA",
+                  "fill": "#FF7A1A",
+                  "cornerRadius": 12,
+                  "padding": [
+                    14,
+                    22
+                  ],
+                  "children": [
+                    {
+                      "type": "text",
+                      "id": "cpHIc",
+                      "name": "searchBtnTextA",
+                      "fill": "#FFFFFF",
+                      "content": "검색",
+                      "fontFamily": "Inter",
+                      "fontSize": 15,
+                      "fontWeight": "bold"
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "type": "frame",
+          "id": "4bYwC",
+          "name": "Results Layout",
+          "width": "fill_container",
+          "gap": 14,
+          "children": [
+            {
+              "type": "frame",
+              "id": "Pgmne",
+              "name": "leftA",
+              "width": "fill_container",
+              "layout": "vertical",
+              "gap": 10,
+              "children": [
+                {
+                  "type": "frame",
+                  "id": "H0LA1",
+                  "name": "resultHeadA",
+                  "width": "fill_container",
+                  "fill": "#FFFFFF",
+                  "cornerRadius": 14,
+                  "layout": "vertical",
+                  "gap": 5,
+                  "padding": [
+                    12,
+                    14
+                  ],
+                  "children": [
+                    {
+                      "type": "text",
+                      "id": "TiFxG",
+                      "name": "resultHeadTitleA",
+                      "fill": "#152132",
+                      "content": "도서관 상세 결과",
+                      "fontFamily": "Inter",
+                      "fontSize": 18,
+                      "fontWeight": "bold"
+                    },
+                    {
+                      "type": "text",
+                      "id": "AgM5Z",
+                      "name": "resultHeadMetaA",
+                      "fill": "#5D7088",
+                      "content": "즉시대출 가능 도서관이 상단에 우선 배치됩니다",
+                      "fontFamily": "Inter",
+                      "fontSize": 12,
+                      "fontWeight": "normal"
+                    }
+                  ]
+                },
+                {
+                  "type": "frame",
+                  "id": "ROBjH",
+                  "name": "providerA1",
+                  "width": "fill_container",
+                  "fill": "#FFFFFF",
+                  "cornerRadius": 16,
+                  "layout": "vertical",
+                  "gap": 8,
+                  "padding": 14,
+                  "children": [
+                    {
+                      "type": "text",
+                      "id": "LRBce",
+                      "name": "providerA1Name",
+                      "fill": "#152132",
+                      "content": "서울도서관",
+                      "fontFamily": "Inter",
+                      "fontSize": 17,
+                      "fontWeight": "bold"
+                    },
+                    {
+                      "type": "frame",
+                      "id": "G3zCN",
+                      "name": "providerA1Badge",
+                      "fill": "#EAF4FF",
+                      "cornerRadius": 999,
+                      "padding": [
+                        7,
+                        11
+                      ],
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "ABDEf",
+                          "name": "providerA1BadgeText",
+                          "fill": "#255A8F",
+                          "content": "바로 대출 가능 3권",
+                          "fontFamily": "Inter",
+                          "fontSize": 12,
+                          "fontWeight": "bold"
+                        }
+                      ]
+                    },
+                    {
+                      "type": "text",
+                      "id": "VhHLx",
+                      "name": "providerA1Conn",
+                      "fill": "#7B8A9D",
+                      "content": "연결 상태: 정상 (200)",
+                      "fontFamily": "Inter",
+                      "fontSize": 12,
+                      "fontWeight": "normal"
+                    },
+                    {
+                      "type": "frame",
+                      "id": "FALYC",
+                      "name": "bookA1",
+                      "width": "fill_container",
+                      "fill": "#F5F8FE",
+                      "cornerRadius": 12,
+                      "layout": "vertical",
+                      "gap": 3,
+                      "padding": 11,
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "Oxkeu",
+                          "name": "bookA1Title",
+                          "fill": "#172133",
+                          "content": "클린 코드",
+                          "fontFamily": "Inter",
+                          "fontSize": 15,
+                          "fontWeight": "bold"
+                        },
+                        {
+                          "type": "text",
+                          "id": "kDObt",
+                          "name": "bookA1Status",
+                          "fill": "#255A8F",
+                          "content": "지금 대출 가능 (신뢰도: high)",
+                          "fontFamily": "Inter",
+                          "fontSize": 13,
+                          "fontWeight": "normal"
+                        },
+                        {
+                          "type": "text",
+                          "id": "bc5ha",
+                          "name": "bookA1Counts",
+                          "fill": "#5B6E87",
+                          "content": "소장 5 / 대출가능 2 / 대출중 3 / 예약 0",
+                          "fontFamily": "Inter",
+                          "fontSize": 12,
+                          "fontWeight": "normal"
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "oAyIL",
+                      "name": "providerA1Links",
+                      "width": "fill_container",
+                      "gap": 8,
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "f9QXx",
+                          "name": "providerA1Link1",
+                          "fill": "#34659B",
+                          "content": "검색 페이지",
+                          "fontFamily": "Inter",
+                          "fontSize": 12,
+                          "fontWeight": "bold"
+                        },
+                        {
+                          "type": "text",
+                          "id": "OaZTb",
+                          "name": "providerA1Link2",
+                          "fill": "#34659B",
+                          "content": "로그인 페이지",
+                          "fontFamily": "Inter",
+                          "fontSize": 12,
+                          "fontWeight": "bold"
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "type": "frame",
+                  "id": "ZsDyF",
+                  "name": "providerA2",
+                  "width": "fill_container",
+                  "fill": "#FFFFFF",
+                  "cornerRadius": 16,
+                  "layout": "vertical",
+                  "gap": 8,
+                  "padding": 14,
+                  "children": [
+                    {
+                      "type": "text",
+                      "id": "X5TK2",
+                      "name": "providerA2Name",
+                      "fill": "#152132",
+                      "content": "중구도서관",
+                      "fontFamily": "Inter",
+                      "fontSize": 17,
+                      "fontWeight": "bold"
+                    },
+                    {
+                      "type": "frame",
+                      "id": "sR17y",
+                      "name": "providerA2Badge",
+                      "fill": "#F1F4F8",
+                      "cornerRadius": 999,
+                      "padding": [
+                        7,
+                        11
+                      ],
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "FYJ2f",
+                          "name": "providerA2BadgeText",
+                          "fill": "#5F7188",
+                          "content": "바로 대출 없음",
+                          "fontFamily": "Inter",
+                          "fontSize": 12,
+                          "fontWeight": "bold"
+                        }
+                      ]
+                    },
+                    {
+                      "type": "text",
+                      "id": "xefxS",
+                      "name": "providerA2Conn",
+                      "fill": "#7B8A9D",
+                      "content": "연결 상태: 정상 (200)",
+                      "fontFamily": "Inter",
+                      "fontSize": 12,
+                      "fontWeight": "normal"
+                    },
+                    {
+                      "type": "text",
+                      "id": "SnbH3",
+                      "name": "providerA2Empty",
+                      "fill": "#5D7088",
+                      "content": "자동 파싱 결과가 없어 검색 페이지에서 직접 확인이 필요합니다.",
+                      "fontFamily": "Inter",
+                      "fontSize": 13,
+                      "fontWeight": "normal"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "type": "frame",
+              "id": "0z9Gh",
+              "name": "rightA",
+              "width": 320,
+              "layout": "vertical",
+              "gap": 10,
+              "children": [
+                {
+                  "type": "frame",
+                  "id": "eb8KY",
+                  "name": "sideFlowA",
+                  "width": "fill_container",
+                  "fill": "#FFFFFF",
+                  "cornerRadius": 16,
+                  "layout": "vertical",
+                  "gap": 8,
+                  "padding": 14,
+                  "children": [
+                    {
+                      "type": "text",
+                      "id": "f3Wer",
+                      "name": "sideFlowTitleA",
+                      "fill": "#152132",
+                      "content": "탐색 흐름",
+                      "fontFamily": "Inter",
+                      "fontSize": 16,
+                      "fontWeight": "bold"
+                    },
+                    {
+                      "type": "frame",
+                      "id": "a3hJU",
+                      "name": "sideStep1A",
+                      "width": "fill_container",
+                      "fill": "#F2F7FF",
+                      "cornerRadius": 12,
+                      "padding": 10,
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "exEtj",
+                          "name": "sideStep1TextA",
+                          "fill": "#3F5C7D",
+                          "content": "1단계: 서울 전역 검색에서 즉시대출 후보 확인",
+                          "fontFamily": "Inter",
+                          "fontSize": 12,
+                          "fontWeight": "normal"
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "eKy7F",
+                      "name": "sideStep2A",
+                      "width": "fill_container",
+                      "fill": "#F6FAFF",
+                      "cornerRadius": 12,
+                      "padding": 10,
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "UVas8",
+                          "name": "sideStep2TextA",
+                          "fill": "#4A607E",
+                          "content": "2단계: 후보 없으면 은평 통합검색으로 확장",
+                          "fontFamily": "Inter",
+                          "fontSize": 12,
+                          "fontWeight": "normal"
+                        }
+                      ]
+                    },
+                    {
+                      "type": "frame",
+                      "id": "fLtgA",
+                      "name": "sideStep3A",
+                      "width": "fill_container",
+                      "fill": "#EEF5FF",
+                      "cornerRadius": 12,
+                      "padding": 10,
+                      "children": [
+                        {
+                          "type": "text",
+                          "id": "EozEd",
+                          "name": "sideStep3TextA",
+                          "fill": "#3F5C7D",
+                          "content": "3단계: 최종적으로 외부 전자책 서비스 확인",
+                          "fontFamily": "Inter",
+                          "fontSize": 12,
+                          "fontWeight": "normal"
+                        }
+                      ]
+                    }
+                  ]
+                },
+                {
+                  "type": "frame",
+                  "id": "1sJxw",
+                  "name": "sideAltA",
+                  "width": "fill_container",
+                  "fill": "#FFFFFF",
+                  "cornerRadius": 16,
+                  "layout": "vertical",
+                  "gap": 8,
+                  "padding": 14,
+                  "children": [
+                    {
+                      "type": "text",
+                      "id": "VYzpk",
+                      "name": "sideAltTitleA",
+                      "fill": "#152132",
+                      "content": "대안 바로가기",
+                      "fontFamily": "Inter",
+                      "fontSize": 16,
+                      "fontWeight": "bold"
+                    },
+                    {
+                      "type": "text",
+                      "id": "o56AA",
+                      "name": "sideAlt1A",
+                      "fill": "#35669D",
+                      "content": "은평 통합검색 링크",
+                      "fontFamily": "Inter",
+                      "fontSize": 13,
+                      "fontWeight": "normal"
+                    },
+                    {
+                      "type": "text",
+                      "id": "yM1hx",
+                      "name": "sideAlt2A",
+                      "fill": "#35669D",
+                      "content": "외부 전자책 서비스 링크",
+                      "fontFamily": "Inter",
+                      "fontSize": 13,
+                      "fontWeight": "normal"
+                    },
+                    {
+                      "type": "text",
+                      "id": "QXCeB",
+                      "name": "sideAlt3A",
+                      "fill": "#35669D",
+                      "content": "도서관 로그인 페이지 링크",
+                      "fontFamily": "Inter",
+                      "fontSize": 13,
+                      "fontWeight": "normal"
+                    }
+                  ]
+                },
+                {
+                  "type": "frame",
+                  "id": "KJ5Rl",
+                  "name": "sideTipA",
+                  "width": "fill_container",
+                  "fill": "#FFFFFF",
+                  "cornerRadius": 16,
+                  "layout": "vertical",
+                  "gap": 6,
+                  "padding": 14,
+                  "children": [
+                    {
+                      "type": "text",
+                      "id": "DKxZk",
+                      "name": "sideTipTitleA",
+                      "fill": "#152132",
+                      "content": "안내",
+                      "fontFamily": "Inter",
+                      "fontSize": 15,
+                      "fontWeight": "bold"
+                    },
+                    {
+                      "type": "text",
+                      "id": "4qFXu",
+                      "name": "sideTipDescA",
+                      "fill": "#5D7088",
+                      "content": "최종 대출·예약은 상세 페이지에서 확인",
+                      "fontFamily": "Inter",
+                      "fontSize": 12,
+                      "fontWeight": "normal"
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        }
+      ]
+    }
+  ]
+}
