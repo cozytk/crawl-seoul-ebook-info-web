@@ -323,6 +323,7 @@ function renderResults(results) {
           coverNode.src = optimizedCoverURL;
           coverNode.alt = `${book.title} 표지`;
         } else {
+          itemNode.classList.add("no-cover");
           coverNode.remove();
         }
         const detailLink = node.querySelector(".book-detail-link");

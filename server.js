@@ -9,6 +9,7 @@ const __dirname = path.dirname(__filename);
 
 const app = express();
 const PORT = process.env.PORT || 3199;
+const EUNPYEONG_LIBRARY_CODE = "111042";
 
 const libraryProviders = [
   { id: "seoul", name: "서울도서관", baseURL: "https://elib.seoul.go.kr/contents/search/content?t=EB&k={searchTerm}", isEucKR: false, loginURL: "https://elib.seoul.go.kr/login" },
@@ -21,6 +22,7 @@ const libraryProviders = [
   { id: "gangnam", name: "강남도서관", baseURL: "https://ebook.gangnam.go.kr/elibbook/book_info.asp?search=title&strSearch={searchTerm}", isEucKR: true, loginURL: "https://ebook.gangnam.go.kr/elibbook/login.asp" },
   { id: "songpa", name: "송파도서관", baseURL: "https://ebook.splib.or.kr/search/?srch_order=total&src_key={searchTerm}", isEucKR: false, loginURL: "https://ebook.splib.or.kr/member/login" },
   { id: "dongdaemun", name: "동대문도서관", baseURL: "https://e-book.l4d.or.kr/elibrary-front/search/searchList.ink?schClst=all&schDvsn=000&orderByKey=&schTxt={searchTerm}", isEucKR: false, loginURL: "https://e-book.l4d.or.kr/elibrary-front/main.ink" },
+  { id: "nowon", name: "노원구립도서관", baseURL: "https://eb.nowonlib.kr/elibrary-front/search/searchList.ink?schClst=all&schDvsn=000&orderByKey=&schTxt={searchTerm}", isEucKR: false, loginURL: "https://eb.nowonlib.kr/elibrary-front/main.ink" },
   { id: "jongno", name: "종로구도서관", baseURL: "https://elib.jongno.go.kr/search/?srch_order=total&src_key={searchTerm}", isEucKR: false, loginURL: "https://elib.jongno.go.kr/member/login" },
   { id: "mapo", name: "마포구도서관", baseURL: "https://ebook.mapo.go.kr/elibrary-front/search/searchList.ink?schClst=all&schDvsn=000&orderByKey=&schTxt={searchTerm}", isEucKR: false, loginURL: "https://ebook.mapo.go.kr/elibrary-front/main.ink" },
   { id: "seongdong", name: "성동구도서관", baseURL: "https://ebook.sdlib.or.kr:444/elibrary-front/search/searchList.ink?schDvsn=000&orderByKey=&schTxt={searchTerm}", isEucKR: false, loginURL: "https://ebook.sdlib.or.kr:444/elibrary-front/member/login.ink" }
@@ -143,10 +145,24 @@ async function searchProvider(provider, query) {
   const timeoutId = setTimeout(() => controller.abort(), PROVIDER_FETCH_TIMEOUT_MS);
 
   try {
-    const response = await fetch(searchURL, { headers: queryHeaders, signal: controller.signal });
-    const html = await decodeProviderHtml(response, provider);
+    let response;
+    let parsedBooks;
 
-    const books = parseBooksFromHtml(html, query, searchURL)
+    if (provider.id === "seoul") {
+      const seoulResult = await fetchSeoulBooks(provider, query, controller.signal);
+      response = seoulResult.response;
+      parsedBooks = seoulResult.books;
+    } else if (provider.id === "eunpyeong-ebook") {
+      const eunpyeongResult = await fetchEunpyeongBooks(provider, query, controller.signal);
+      response = eunpyeongResult.response;
+      parsedBooks = eunpyeongResult.books;
+    } else {
+      response = await fetch(searchURL, { headers: queryHeaders, signal: controller.signal });
+      const html = await decodeProviderHtml(response, provider);
+      parsedBooks = parseBooksFromHtml(html, query, searchURL);
+    }
+
+    const books = parsedBooks
       .slice(0, 8)
       .map((book) => {
         const { detailOnclick, previewOnclick, ...safeBook } = book;
@@ -200,6 +216,76 @@ async function searchProvider(provider, query) {
   }
 }
 
+async function fetchSeoulBooks(provider, query, signal) {
+  const apiURL = new URL("/api/contents/search", provider.baseURL);
+  apiURL.searchParams.set("libCode", "");
+  apiURL.searchParams.set("contentType", "EB");
+  apiURL.searchParams.set("searchKeyword", query);
+  apiURL.searchParams.set("searchOption", "4");
+  apiURL.searchParams.set("sortOption", "1");
+  apiURL.searchParams.set("innerSearchYN", "N");
+  apiURL.searchParams.set("innerKeyword", "");
+  apiURL.searchParams.set("currentCount", "1");
+  apiURL.searchParams.set("pageCount", "30");
+  apiURL.searchParams.set("loanable", "");
+  apiURL.searchParams.set("isTotal", "false");
+  apiURL.searchParams.set("showType", "A");
+  apiURL.searchParams.set("searchCombine", "N");
+
+  const response = await fetch(apiURL, {
+    headers: {
+      ...queryHeaders,
+      Accept: "application/json, text/plain, */*",
+      Referer: constructURL(provider, query)
+    },
+    signal
+  });
+
+  let payload = null;
+  try {
+    payload = await response.json();
+  } catch {
+    payload = null;
+  }
+
+  return {
+    response,
+    books: parseBooksFromSeoulPayload(payload)
+  };
+}
+
+async function fetchEunpyeongBooks(provider, query, signal) {
+  const apiURL = new URL("/ebookPlatform/Homepage/ContentsSearch.do", provider.baseURL);
+  apiURL.searchParams.set("libCode", EUNPYEONG_LIBRARY_CODE);
+  apiURL.searchParams.set("userId", "null");
+  apiURL.searchParams.set("searchKeyword", query);
+  apiURL.searchParams.set("searchOption", "0");
+  apiURL.searchParams.set("currentCount", "1");
+  apiURL.searchParams.set("pageCount", "20");
+  apiURL.searchParams.set("sortOption", "1");
+
+  const response = await fetch(apiURL, {
+    headers: {
+      ...queryHeaders,
+      Accept: "application/json, text/plain, */*",
+      Referer: constructURL(provider, query)
+    },
+    signal
+  });
+
+  let payload = null;
+  try {
+    payload = await response.json();
+  } catch {
+    payload = null;
+  }
+
+  return {
+    response,
+    books: parseBooksFromEunpyeongPayload(payload, query)
+  };
+}
+
 function parseBooksFromHtml(html, query, searchURL) {
   const $ = load(html);
   const normalizedQuery = normalizeKorean(query);
@@ -209,11 +295,14 @@ function parseBooksFromHtml(html, query, searchURL) {
     ".book_resultList > li",
     ".book_item",
     ".book-list > li",
+    ".ebook-list .bx",
     ".ebook-list > .bx",
     ".search-result > li",
     ".bookList > li",
     ".cont_list > li",
     ".listType > li",
+    ".book_list_body .book",
+    ".book_list .book",
     "li:has(.tit)",
     "article"
   ];
@@ -240,16 +329,23 @@ function parseBooksFromHtml(html, query, searchURL) {
 
       const holdingsCount = pickNumber(text, [/(?:소장|보유)\s*[:：]?\s*(\d+)/, /(\d+)\s*권\s*(?:소장|보유)/]);
       const availableCount = pickNumber(text, [/(?:대출\s*가능|대출가능)\s*[:：]?\s*(\d+)/, /(?:대출\s*가능|대출가능)\s*(\d+)\s*권/]);
-      const loanedCount = pickNumber(text, [/(?:대출\s*중|대출중)\s*[:：]?\s*(\d+)/]);
+      const loanedCount = pickNumber(text, [
+        /(?:대출\s*중|대출중)\s*[:：]?\s*(\d+)/,
+        /(?:^|[\s|/,])대출(?!\s*가능)\s*[:：]?\s*(\d+)/
+      ]);
       const reservationCount = pickNumber(text, [/(?:예약|대기)\s*[:：]?\s*(\d+)/, /예약\s*(\d+)\s*명/]);
 
       const loanSlashPattern = text.match(/대출\s*[:：]\s*(\d+)\s*\/\s*(\d+)/);
       const resolvedLoaned = loanSlashPattern ? Number(loanSlashPattern[1]) : loanedCount;
       const resolvedHoldings = loanSlashPattern ? Number(loanSlashPattern[2]) : holdingsCount;
+      const inferredAvailableFromCounts =
+        Number.isFinite(resolvedHoldings) && Number.isFinite(resolvedLoaned)
+          ? Math.max(resolvedHoldings - resolvedLoaned, 0)
+          : null;
       const resolvedAvailable =
         loanSlashPattern && Number.isFinite(resolvedHoldings) && Number.isFinite(resolvedLoaned)
           ? Math.max(resolvedHoldings - resolvedLoaned, 0)
-          : availableCount;
+          : availableCount ?? inferredAvailableFromCounts;
 
       const decision = decideAvailability({
         text,
@@ -289,9 +385,154 @@ function parseBooksFromHtml(html, query, searchURL) {
     .slice(0, 12);
 }
 
+function parseBooksFromSeoulPayload(payload) {
+  const list = Array.isArray(payload?.ContentDataList) ? payload.ContentDataList : [];
+
+  return list
+    .map((item) => {
+      const title = compactText(item?.title || "");
+      if (!title) {
+        return null;
+      }
+
+      const author = compactText(item?.author || "");
+      const publisher = compactText(item?.publisher || "");
+      const holdingsCount = toFiniteNumber(item?.b2bCopys);
+      const loanedCount = toFiniteNumber(item?.currentLoanCount);
+      const reservationCount = toFiniteNumber(item?.currentResvCount);
+      const availableCount =
+        holdingsCount !== null && loanedCount !== null
+          ? Math.max(holdingsCount - loanedCount, 0)
+          : null;
+
+      const statusTextParts = [];
+      if (author) {
+        statusTextParts.push(`저자 ${author}`);
+      }
+      if (publisher) {
+        statusTextParts.push(`출판사 ${publisher}`);
+      }
+      if (holdingsCount !== null) {
+        statusTextParts.push(`소장 ${holdingsCount}`);
+      }
+      if (availableCount !== null) {
+        statusTextParts.push(`대출가능 ${availableCount}`);
+      }
+      if (loanedCount !== null) {
+        statusTextParts.push(`대출중 ${loanedCount}`);
+      }
+      if (reservationCount !== null) {
+        statusTextParts.push(`예약 ${reservationCount}`);
+      }
+      const rawStatusText = statusTextParts.join(" / ");
+
+      const detailURL = item?.contentsKey
+        ? `https://elib.seoul.go.kr/contents/detail.do?no=${encodeURIComponent(item.contentsKey)}`
+        : null;
+
+      return {
+        title,
+        storeName: compactText(item?.contentsTypeDesc || ""),
+        detailURL,
+        detailOnclick: "",
+        previewURL: null,
+        previewOnclick: "",
+        coverImageURL: item?.coverUrl || item?.coverMSizeUrl || item?.coverSSizeUrl || null,
+        holdingsCount,
+        availableCount,
+        loanedCount,
+        reservationCount,
+        decision: decideAvailability({
+          text: rawStatusText,
+          holdingsCount,
+          availableCount,
+          reservationCount
+        }),
+        rawStatusText
+      };
+    })
+    .filter(Boolean);
+}
+
+function parseBooksFromEunpyeongPayload(payload, query) {
+  const list = Array.isArray(payload?.Contents?.ContentDataList) ? payload.Contents.ContentDataList : [];
+  const normalizedQuery = normalizeKorean(query);
+
+  return list
+    .map((item) => {
+      const title = compactText(item?.ContentTitle || "");
+      if (!title) {
+        return null;
+      }
+
+      const normalizedTitle = normalizeKorean(title);
+      if (normalizedQuery && !normalizedTitle.includes(normalizedQuery)) {
+        return null;
+      }
+
+      const author = compactText(item?.ContentAuthor || "");
+      const publisher = compactText(item?.ContentPublisher || "");
+      const holdingsCount = toFiniteNumber(item?.Copys);
+      const loanedCount = toFiniteNumber(item?.CurLoanCnt);
+      const reservationCount = toFiniteNumber(item?.CurResvCnt);
+      const availableCount =
+        holdingsCount !== null && loanedCount !== null
+          ? Math.max(holdingsCount - loanedCount, 0)
+          : null;
+
+      const statusTextParts = [];
+      if (author) {
+        statusTextParts.push(`저자 ${author}`);
+      }
+      if (publisher) {
+        statusTextParts.push(`출판사 ${publisher}`);
+      }
+      if (holdingsCount !== null) {
+        statusTextParts.push(`소장 ${holdingsCount}`);
+      }
+      if (availableCount !== null) {
+        statusTextParts.push(`대출가능 ${availableCount}`);
+      }
+      if (loanedCount !== null) {
+        statusTextParts.push(`대출중 ${loanedCount}`);
+      }
+      if (reservationCount !== null) {
+        statusTextParts.push(`예약 ${reservationCount}`);
+      }
+      const rawStatusText = statusTextParts.join(" / ");
+
+      const detailURL = item?.ContentKey
+        ? `https://epbook.eplib.or.kr/ebookPlatform/home/detail.do?no=${encodeURIComponent(item.ContentKey)}`
+        : null;
+
+      return {
+        title,
+        storeName: compactText(item?.OwnerCodeDesc || ""),
+        detailURL,
+        detailOnclick: "",
+        previewURL: null,
+        previewOnclick: "",
+        coverImageURL: item?.ContentCoverUrlM || item?.ContentCoverUrl || item?.ContentCoverUrlS || null,
+        holdingsCount,
+        availableCount,
+        loanedCount,
+        reservationCount,
+        decision: decideAvailability({
+          text: rawStatusText,
+          holdingsCount,
+          availableCount,
+          reservationCount
+        }),
+        rawStatusText
+      };
+    })
+    .filter(Boolean);
+}
+
 function decideAvailability({ text, holdingsCount, availableCount, reservationCount }) {
   const availableToken = /(대출\s*가능|대출가능|바로대출|즉시대출)/.test(text);
-  const unavailableToken = /(미소장|소장없음|서비스\s*없음)/.test(text);
+  const hardUnavailableToken = /(미소장|소장\s*없음|대출\s*불가|이용\s*불가|열람\s*불가)/.test(text);
+  const serviceUnavailableToken = /서비스\s*없음/.test(text);
   const reservationToken = /(예약가능|예약중|예약\s*대기|대기중|대기자|예약자)/.test(text);
 
   if (availableCount !== null && availableCount > 0) {
@@ -302,7 +543,11 @@ function decideAvailability({ text, holdingsCount, availableCount, reservationCo
     };
   }
 
-  if (availableToken && (reservationCount === null || reservationCount === 0)) {
+  if (
+    availableToken &&
+    (availableCount === null || availableCount > 0) &&
+    (reservationCount === null || reservationCount === 0)
+  ) {
     return {
       state: "borrow_now",
       confidence: "medium",
@@ -310,11 +555,24 @@ function decideAvailability({ text, holdingsCount, availableCount, reservationCo
     };
   }
 
-  if (holdingsCount === 0 || unavailableToken) {
+  if (holdingsCount === 0 || hardUnavailableToken) {
     return {
       state: "unavailable",
       confidence: "high",
       reason: "holdings_zero_or_unavailable_token"
+    };
+  }
+
+  if (
+    serviceUnavailableToken &&
+    !availableToken &&
+    !(availableCount !== null && availableCount > 0) &&
+    (holdingsCount === null || holdingsCount <= 0)
+  ) {
+    return {
+      state: "unavailable",
+      confidence: "medium",
+      reason: "service_unavailable_without_positive_signals"
     };
   }
 
@@ -370,17 +628,21 @@ function scoreBook(book) {
 
 function extractTitle(node, fallbackText) {
   const selectors = [
+    ".book_title a",
+    ".book_title",
     ".title",
     ".book_tit",
     ".tit",
     "h3",
     "h4",
     "strong",
-    "a[title]"
+    "a[title]",
+    "img[alt]"
   ];
 
   for (const selector of selectors) {
-    const value = compactText(node.find(selector).first().text() || node.find(selector).first().attr("title") || "");
+    const target = node.find(selector).first();
+    const value = compactText(target.text() || target.attr("title") || target.attr("alt") || "");
     if (value.length >= 2) {
       return value;
     }
@@ -400,6 +662,11 @@ function pickNumber(text, patterns) {
     }
   }
   return null;
+}
+
+function toFiniteNumber(value) {
+  const number = Number(value);
+  return Number.isFinite(number) ? number : null;
 }
 
 function uniqueByTitleAndStore(items) {

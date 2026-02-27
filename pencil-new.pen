@@ -43,10 +43,10 @@
                   "type": "frame",
                   "id": "L7358",
                   "name": "logoA",
-                  "width": 36,
-                  "height": 36,
-                  "fill": "url(/seoul-shelf-logo.png)",
-                  "cornerRadius": 10
+                  "width": 38,
+                  "height": 38,
+                  "fill": "#2F80ED",
+                  "cornerRadius": 12
                 },
                 {
                   "type": "frame",
