@@ -5,7 +5,8 @@ const minimumProviderCount = Number(process.env.MIN_PROVIDER_COUNT || 14);
 const config = await fetchJSON("/api/config/providers");
 const libraryProviders = config.libraryProviders || [];
 const externalProviders = config.externalProviders || [];
-const providers = [...libraryProviders, ...externalProviders];
+const physicalProviders = config.physicalProviders || [];
+const providers = [...externalProviders, ...libraryProviders, ...physicalProviders];
 
 if (libraryProviders.length < minimumProviderCount) {
   fail(`library provider count ${libraryProviders.length} is below expected minimum ${minimumProviderCount}`);
@@ -33,7 +34,7 @@ if (!parsedProviders.length) {
 }
 
 const supportedIds = new Set(providers.map((provider) => provider.id));
-for (const requiredId of ["eunpyeong-ebook", "seocho", "seoul", "millie"]) {
+for (const requiredId of ["eunpyeong-ebook", "seocho", "seoul", "millie", "eunpyeong-public"]) {
   if (!supportedIds.has(requiredId)) {
     fail(`required provider missing: ${requiredId}`);
   }
@@ -43,6 +44,7 @@ console.log(
   [
     `ok libraries=${libraryProviders.length}`,
     `external=${externalProviders.length}`,
+    `physical=${physicalProviders.length}`,
     `providers=${providers.length}`,
     `query="${query}"`,
     `parsedProviders=${parsedProviders.length}`,

@@ -101,20 +101,20 @@ async function loadSupportedLibraries() {
       throw new Error(data.error || "설정 조회 실패");
     }
 
-    renderSupportedLibraries(data.libraryProviders || [], data.externalProviders || []);
+    renderSupportedLibraries(data.libraryProviders || [], data.externalProviders || [], data.physicalProviders || []);
   } catch {
     supportedCountEl.textContent = "지원 검색처 확인 실패";
     renderSupportedLibrariesEmpty("목록을 불러오지 못했습니다.");
   }
 }
 
-function renderSupportedLibraries(providers, externalProviders = []) {
+function renderSupportedLibraries(providers, externalProviders = [], physicalProviders = []) {
   if (!supportedLibrariesEl || !supportedCountEl) {
     return;
   }
 
-  const allProviders = [...providers, ...externalProviders];
-  supportedCountEl.textContent = `지원 도서관 ${providers.length}개 · 외부 ${externalProviders.length}개`;
+  const allProviders = [...externalProviders, ...providers, ...physicalProviders];
+  supportedCountEl.textContent = `전자책 ${providers.length}개 · 외부 ${externalProviders.length}개 · 실물 ${physicalProviders.length}개`;
   supportedLibrariesEl.replaceChildren();
 
   if (!allProviders.length) {
@@ -127,7 +127,9 @@ function renderSupportedLibraries(providers, externalProviders = []) {
     const chip = document.createElement("span");
     const isSubscription = provider.libraryModel === "subscription";
     chip.className = `library-chip ${isSubscription ? "is-subscription" : "is-owned"}`;
-    chip.textContent = `${provider.name} · ${provider.externalProvider ? "외부 구독형" : isSubscription ? "구독형" : "소장형"}`;
+    chip.textContent = `${provider.name} · ${
+      provider.physicalProvider ? "실물 대출" : provider.externalProvider ? "외부 구독형" : isSubscription ? "구독형" : "소장형"
+    }`;
     fragment.appendChild(chip);
   }
   supportedLibrariesEl.appendChild(fragment);
@@ -147,17 +149,23 @@ function renderFlow(flow) {
     return;
   }
 
-  const phase1Text = flow.phase1.hasBorrowable
-    ? "대출 가능 후보를 찾았어요. 상단 결과를 우선 확인하세요."
-    : "대출 가능 후보가 없어 다음 탐색 경로를 활성화합니다.";
+  const phase1Text = flow.phase1.hasPrimary
+    ? "전자책으로 바로 볼 수 있는 후보가 있습니다."
+    : flow.phase1.hasBorrowable
+      ? "밀리 후보가 있습니다. 전자책이 없으면 오디오북도 확인하세요."
+      : "밀리 후보가 없어 서울 전자책 검색을 우선 확인합니다.";
 
   const phase2Text = flow.phase2.enabled
-    ? "필요: 은평 통합검색으로 범위를 넓혀보세요."
-    : "불필요: 1단계에서 충분한 후보를 찾았습니다.";
+    ? flow.phase2.hasBorrowable
+      ? "서울 전역 전자책에서 대출 가능 후보가 있습니다."
+      : "서울 전역 전자책 후보가 부족하면 은평 실물도서를 확인하세요."
+    : "밀리 전자책 후보가 있어 후순위로 배치합니다.";
 
   const phase3Text = flow.phase3.enabled
-    ? "필요: 외부 전자책 서비스 대안을 함께 확인하세요."
-    : "불필요: 도서관 후보가 존재합니다.";
+    ? flow.phase3.hasBorrowable
+      ? "은평구공공도서관 실물 대출 가능 후보가 있습니다."
+      : "은평 실물 소장/예약/상호대차/무인예약 여부를 확인하세요."
+    : "전자책 후보가 있어 후순위로 배치합니다.";
 
   const flowItems = [
     {
@@ -183,18 +191,18 @@ function renderFlow(flow) {
 function renderFlowPlaceholder() {
   const flowItems = [
     {
-      title: "1단계 · 서울 전역 전자도서관 검색",
-      text: "검색 결과에서 즉시 대출 가능 여부를 먼저 보여줍니다.",
+      title: "1단계 · 밀리의서재 확인",
+      text: "전자책 후보를 먼저 확인하고, 없으면 오디오북을 보조로 봅니다.",
       active: false
     },
     {
-      title: "2단계 · 통합검색 확장",
-      text: "필요할 때만 범위를 넓혀 확인합니다.",
+      title: "2단계 · 서울 전역 전자책 검색",
+      text: "서울권 전자도서관의 대출 가능 여부를 확인합니다.",
       active: false
     },
     {
-      title: "3단계 · 외부 서비스 대안",
-      text: "도서관 후보가 없을 때만 보조 수단을 안내합니다.",
+      title: "3단계 · 은평구공공도서관 실물 대출",
+      text: "대조꿈나무, 상호대차/무인예약 가능, 타 도서관 순으로 봅니다.",
       active: false
     }
   ];
@@ -376,6 +384,9 @@ function compareProviders(a, b) {
 
 function providerRank(provider) {
   if (provider.providerInstantCount > 0) {
+    return provider.isPhysicalProvider ? 3 : 1;
+  }
+  if (provider.providerSubscriptionCount > 0 && provider.providerId === "millie") {
     return 0;
   }
   if (provider.providerSubscriptionCount > 0 && !provider.isSubscriptionProvider) {
@@ -455,7 +466,14 @@ function groupBooksByStore(books) {
   }
 
   return Array.from(storeGroups.entries())
-    .sort(([nameA], [nameB]) => compareStoreNames(nameA, nameB))
+    .sort(([nameA, booksA], [nameB, booksB]) => {
+      const priorityA = Math.max(0, ...booksA.map(scoreBookPriority));
+      const priorityB = Math.max(0, ...booksB.map(scoreBookPriority));
+      if (priorityA !== priorityB) {
+        return priorityB - priorityA;
+      }
+      return compareStoreNames(nameA, nameB);
+    })
     .map(([storeName, groupedBooks]) => ({
       storeName,
       books: groupedBooks
@@ -502,6 +520,25 @@ function compareStoreNames(a, b) {
 }
 
 function scoreBookPriority(book) {
+  if (book.localLibraryAccess) {
+    let score = 0;
+    if (book.decision?.state === "borrow_now") {
+      score += 1000;
+    }
+    if (book.isPreferredDaejo) {
+      score += 3000;
+    }
+    if (book.isMutualLoanAvailable) {
+      score += 120;
+    }
+    if (book.isUnmannedReservationAvailable) {
+      score += 100;
+    }
+    return score;
+  }
+  if (book.subscriptionAccess) {
+    return book.contentKind === "ebook" ? 350 : 250;
+  }
   const state = book.decision?.state;
   if (state === "borrow_now") {
     return 300 + (book.availableCount || 0);
@@ -524,6 +561,13 @@ function renderState(decision) {
     };
   }
   if (decision.state === "borrow_now") {
+    if (decision.reason === "eunpyeong_public_available") {
+      return {
+        text: `은평 실물도서 대출 가능 (신뢰도: ${decision.confidence})`,
+        textClass: "ok",
+        containerClass: "state-borrow"
+      };
+    }
     if (decision.reason === "subscription_provider_listed") {
       return {
         text: `구독 서비스에서 이용 가능 (신뢰도: ${decision.confidence})`,
@@ -568,6 +612,21 @@ function renderCounts(book) {
     return segments.join(" / ");
   }
 
+  if (book.localLibraryAccess) {
+    const segments = [];
+    segments.push(`위치: ${book.localLibraryName || "미확인"} ${book.localShelfLocation || ""}`.trim());
+    segments.push(`상태: ${book.localLoanStatus || "미확인"}`);
+    if (book.localReturnPlanDate) {
+      segments.push(`반납예정: ${book.localReturnPlanDate}`);
+    }
+    segments.push(`상호대차: ${book.isMutualLoanAvailable ? "가능" : "불가"}`);
+    segments.push(`무인예약: ${book.isUnmannedReservationAvailable ? "가능" : "불가"}`);
+    if (book.isPreferredDaejo) {
+      segments.push("선호: 대조꿈나무/대조동");
+    }
+    return segments.join(" / ");
+  }
+
   const segments = [];
   segments.push(`소장: ${book.holdingsCount ?? "미확인"}`);
   segments.push(`대출가능: ${book.availableCount ?? "미확인"}`);
@@ -581,6 +640,9 @@ function getLibraryModelLabel(providerOrModel) {
     typeof providerOrModel === "string" ? { libraryModel: providerOrModel } : providerOrModel || {};
   if (provider.isExternalProvider || provider.externalProvider) {
     return "외부 구독형 서비스";
+  }
+  if (provider.isPhysicalProvider || provider.physicalProvider || provider.libraryModel === "physical") {
+    return "실물도서 대출";
   }
   if (provider.libraryModel === "subscription") {
     return "구독형 도서관";
@@ -604,19 +666,19 @@ function renderFallbackLinks(flow) {
     return;
   }
 
-  const eunpyeongLink = document.createElement("a");
-  eunpyeongLink.href = flow.phase2.searchURL;
-  eunpyeongLink.target = "_blank";
-  eunpyeongLink.rel = "noopener noreferrer";
-  eunpyeongLink.textContent = flow.phase2.enabled
-    ? "은평 통합검색 열기 (활성)"
-    : "은평 통합검색 열기";
+  const millieLink = document.createElement("a");
+  millieLink.href = flow.phase1.searchURL;
+  millieLink.target = "_blank";
+  millieLink.rel = "noopener noreferrer";
+  millieLink.textContent = flow.phase1.hasBorrowable
+    ? "밀리의서재 검색 열기 (후보 있음)"
+    : "밀리의서재 검색 열기";
 
   const externalLinks = flow.phase3.externalLinks?.length
     ? flow.phase3.externalLinks
     : [{ label: "외부 전자책 서비스 검색", searchURL: flow.phase3.searchURL }];
 
-  fallbackLinks.appendChild(eunpyeongLink);
+  fallbackLinks.appendChild(millieLink);
   for (const externalLink of externalLinks) {
     const link = document.createElement("a");
     link.href = externalLink.searchURL;
