@@ -42,30 +42,6 @@ body {
   position: relative;
 }
 
-.bg-orb {
-  position: fixed;
-  z-index: -1;
-  border-radius: 999px;
-  filter: blur(8px);
-  opacity: 0.56;
-}
-
-.bg-orb-blue {
-  width: 460px;
-  height: 460px;
-  background: radial-gradient(circle, #d7e8ff 0, transparent 72%);
-  top: -130px;
-  right: -90px;
-}
-
-.bg-orb-orange {
-  width: 400px;
-  height: 400px;
-  background: radial-gradient(circle, #e8f1ff 0, transparent 72%);
-  left: -120px;
-  top: 260px;
-}
-
 .app-shell {
   width: min(1280px, calc(100% - 2rem));
   margin: 1.6rem auto 3rem;

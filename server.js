@@ -9,11 +9,10 @@ const __dirname = path.dirname(__filename);
 
 const app = express();
 const PORT = process.env.PORT || 3199;
-const EUNPYEONG_LIBRARY_CODE = "111042";
 
 const libraryProviders = [
   { id: "seoul", name: "서울도서관", baseURL: "https://elib.seoul.go.kr/contents/search/content?t=EB&k={searchTerm}", isEucKR: false, loginURL: "https://elib.seoul.go.kr/login" },
-  { id: "eunpyeong-ebook", name: "은평구립도서관", baseURL: "https://epbook.eplib.or.kr/ebookPlatform/home/search.do?k={searchTerm}", isEucKR: false, loginURL: "https://epbook.eplib.or.kr/ebookPlatform/login/loginForm.do" },
+  { id: "eunpyeong-ebook", name: "은평구립도서관", baseURL: "https://epbook.eplib.or.kr/search?keyword={searchTerm}", apiBaseURL: "https://epbook.eplib.or.kr", isEucKR: false, loginURL: "https://epbook.eplib.or.kr/login" },
   { id: "nanet", name: "국회도서관", baseURL: "https://nanet.dkyobobook.co.kr/search/searchList.ink?schClst=all&schDvsn=000&orderByKey=&schTxt={searchTerm}", isEucKR: false, loginURL: "https://nanet.dkyobobook.co.kr/member/login.ink", subscriptionListAvailable: true },
   { id: "junggu", name: "중구도서관", baseURL: "https://ebook.junggulib.or.kr/elibrary-front/search/searchList.ink?schDvsn=000&orderByKey=&schTxt={searchTerm}", isEucKR: false, loginURL: "https://ebook.junggulib.or.kr/elibrary-front/member/login.ink" },
   { id: "yongsan", name: "용산도서관", baseURL: "https://ebook.yslibrary.or.kr/elibrary-front/search/searchList.ink?schDvsn=000&orderByKey=&schTxt={searchTerm}", isEucKR: false, loginURL: "https://ebook.yslibrary.or.kr/elibrary-front/member/login.ink" },
@@ -25,7 +24,8 @@ const libraryProviders = [
   { id: "nowon", name: "노원구립도서관", baseURL: "https://eb.nowonlib.kr/elibrary-front/search/searchList.ink?schClst=all&schDvsn=000&orderByKey=&schTxt={searchTerm}", isEucKR: false, loginURL: "https://eb.nowonlib.kr/elibrary-front/main.ink" },
   { id: "jongno", name: "종로구도서관", baseURL: "https://elib.jongno.go.kr/search/?srch_order=total&src_key={searchTerm}", isEucKR: false, loginURL: "https://elib.jongno.go.kr/member/login" },
   { id: "mapo", name: "마포구도서관", baseURL: "https://ebook.mapo.go.kr/elibrary-front/search/searchList.ink?schClst=all&schDvsn=000&orderByKey=&schTxt={searchTerm}", isEucKR: false, loginURL: "https://ebook.mapo.go.kr/elibrary-front/main.ink" },
-  { id: "seongdong", name: "성동구도서관", baseURL: "https://ebook.sdlib.or.kr:444/elibrary-front/search/searchList.ink?schDvsn=000&orderByKey=&schTxt={searchTerm}", isEucKR: false, loginURL: "https://ebook.sdlib.or.kr:444/elibrary-front/member/login.ink" }
+  { id: "seongdong", name: "성동구도서관", baseURL: "https://ebook.sdlib.or.kr:444/elibrary-front/search/searchList.ink?schDvsn=000&orderByKey=&schTxt={searchTerm}", isEucKR: false, loginURL: "https://ebook.sdlib.or.kr:444/elibrary-front/member/login.ink" },
+  { id: "seocho", name: "서초구 전자도서관", baseURL: "https://e-book.seocholib.or.kr/search?keyword={searchTerm}", apiBaseURL: "https://e-book.seocholib.or.kr", isEucKR: false, loginURL: "https://e-book.seocholib.or.kr/login" }
 ];
 
 const eunpyeongUnified = {
@@ -152,10 +152,10 @@ async function searchProvider(provider, query) {
       const seoulResult = await fetchSeoulBooks(provider, query, controller.signal);
       response = seoulResult.response;
       parsedBooks = seoulResult.books;
-    } else if (provider.id === "eunpyeong-ebook") {
-      const eunpyeongResult = await fetchEunpyeongBooks(provider, query, controller.signal);
-      response = eunpyeongResult.response;
-      parsedBooks = eunpyeongResult.books;
+    } else if (provider.apiBaseURL) {
+      const ecoResult = await fetchEcoBooks(provider, query, controller.signal);
+      response = ecoResult.response;
+      parsedBooks = ecoResult.books;
     } else {
       response = await fetch(searchURL, { headers: queryHeaders, signal: controller.signal });
       const html = await decodeProviderHtml(response, provider);
@@ -254,15 +254,19 @@ async function fetchSeoulBooks(provider, query, signal) {
   };
 }
 
-async function fetchEunpyeongBooks(provider, query, signal) {
-  const apiURL = new URL("/ebookPlatform/Homepage/ContentsSearch.do", provider.baseURL);
-  apiURL.searchParams.set("libCode", EUNPYEONG_LIBRARY_CODE);
-  apiURL.searchParams.set("userId", "null");
-  apiURL.searchParams.set("searchKeyword", query);
-  apiURL.searchParams.set("searchOption", "0");
-  apiURL.searchParams.set("currentCount", "1");
-  apiURL.searchParams.set("pageCount", "20");
-  apiURL.searchParams.set("sortOption", "1");
+async function fetchEcoBooks(provider, query, signal) {
+  const apiURL = new URL("/api/service/search/simple", provider.apiBaseURL);
+  apiURL.searchParams.set("contentType", "EB");
+  apiURL.searchParams.set("searchType", "");
+  apiURL.searchParams.set("detailQuery", "");
+  apiURL.searchParams.set("isbn", "");
+  apiURL.searchParams.set("OnlyStartWith", "");
+  apiURL.searchParams.set("sort", "title");
+  apiURL.searchParams.set("asc", "desc");
+  apiURL.searchParams.set("loanable", "N");
+  apiURL.searchParams.set("page", "1");
+  apiURL.searchParams.set("size", "20");
+  apiURL.searchParams.set("keyword", query.replace(/\s+/g, ""));
 
   const response = await fetch(apiURL, {
     headers: {
@@ -282,7 +286,7 @@ async function fetchEunpyeongBooks(provider, query, signal) {
 
   return {
     response,
-    books: parseBooksFromEunpyeongPayload(payload, query)
+    books: parseBooksFromEcoPayload(payload, query, provider)
   };
 }
 
@@ -454,13 +458,13 @@ function parseBooksFromSeoulPayload(payload) {
     .filter(Boolean);
 }
 
-function parseBooksFromEunpyeongPayload(payload, query) {
-  const list = Array.isArray(payload?.Contents?.ContentDataList) ? payload.Contents.ContentDataList : [];
+function parseBooksFromEcoPayload(payload, query, provider) {
+  const list = Array.isArray(payload?.data?.content) ? payload.data.content : [];
   const normalizedQuery = normalizeKorean(query);
 
   return list
     .map((item) => {
-      const title = compactText(item?.ContentTitle || "");
+      const title = compactText(item?.title || "");
       if (!title) {
         return null;
       }
@@ -470,13 +474,16 @@ function parseBooksFromEunpyeongPayload(payload, query) {
         return null;
       }
 
-      const author = compactText(item?.ContentAuthor || "");
-      const publisher = compactText(item?.ContentPublisher || "");
-      const holdingsCount = toFiniteNumber(item?.Copys);
-      const loanedCount = toFiniteNumber(item?.CurLoanCnt);
-      const reservationCount = toFiniteNumber(item?.CurResvCnt);
+      const author = compactText(item?.author || "");
+      const publisher = compactText(item?.publisher || "");
+      const holdingsCount = toFiniteNumber(item?.copys);
+      const loanedCount = toFiniteNumber(item?.loanCnt);
+      const reservationCount = toFiniteNumber(item?.reserveCnt);
+      const apiLoanableCount = toFiniteNumber(item?.loanable);
       const availableCount =
-        holdingsCount !== null && loanedCount !== null
+        apiLoanableCount !== null
+          ? apiLoanableCount
+          : holdingsCount !== null && loanedCount !== null
           ? Math.max(holdingsCount - loanedCount, 0)
           : null;
 
@@ -501,18 +508,20 @@ function parseBooksFromEunpyeongPayload(payload, query) {
       }
       const rawStatusText = statusTextParts.join(" / ");
 
-      const detailURL = item?.ContentKey
-        ? `https://epbook.eplib.or.kr/ebookPlatform/home/detail.do?no=${encodeURIComponent(item.ContentKey)}`
-        : null;
+      const detailURL = item?.webpageUrl
+        ? resolveSafeAbsoluteURL(item.webpageUrl, provider.baseURL)
+        : item?.contentKey
+          ? new URL(`/content/detail?id=${encodeURIComponent(item.contentKey)}&contentType=${encodeURIComponent(item.contentType || "EB")}`, provider.baseURL).toString()
+          : null;
 
       return {
         title,
-        storeName: compactText(item?.OwnerCodeDesc || ""),
+        storeName: compactText(item?.ownerName || item?.ownerCode || ""),
         detailURL,
         detailOnclick: "",
         previewURL: null,
         previewOnclick: "",
-        coverImageURL: item?.ContentCoverUrlM || item?.ContentCoverUrl || item?.ContentCoverUrlS || null,
+        coverImageURL: item?.coverAccessUrl || item?.coverUrl || null,
         holdingsCount,
         availableCount,
         loanedCount,
