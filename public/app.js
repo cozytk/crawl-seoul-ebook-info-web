@@ -47,24 +47,28 @@ form.addEventListener("submit", async (event) => {
   renderFallbackLinks();
 
   try {
-    const response = await fetch(`/api/search?q=${encodeURIComponent(query)}`, {
-      signal: controller.signal
-    });
-    const data = await response.json();
+    if (window.ReadableStream) {
+      await streamSearchResults(query, controller.signal, requestId);
+    } else {
+      const response = await fetch(`/api/search?q=${encodeURIComponent(query)}`, {
+        signal: controller.signal
+      });
+      const data = await response.json();
 
-    if (requestId !== activeSearchRequestId) {
-      return;
+      if (requestId !== activeSearchRequestId) {
+        return;
+      }
+
+      if (!response.ok) {
+        throw new Error(data.error || "검색 실패");
+      }
+
+      renderFlow(data.flow);
+      renderResults(data.libraryResults);
+      resultMeta.textContent = `"${data.query}" 기준 ${data.libraryResults.length}개 검색처 분석 완료`;
+      searchTime.textContent = formatSearchedAt(data.searchedAt);
+      renderFallbackLinks(data.flow);
     }
-
-    if (!response.ok) {
-      throw new Error(data.error || "검색 실패");
-    }
-
-    renderFlow(data.flow);
-    renderResults(data.libraryResults);
-    resultMeta.textContent = `"${data.query}" 기준 ${data.libraryResults.length}개 검색처 분석 완료`;
-    searchTime.textContent = formatSearchedAt(data.searchedAt);
-    renderFallbackLinks(data.flow);
   } catch (error) {
     if (requestId !== activeSearchRequestId) {
       return;
@@ -87,6 +91,140 @@ form.addEventListener("submit", async (event) => {
     }
   }
 });
+
+async function streamSearchResults(query, signal, requestId) {
+  const response = await fetch(`/api/search/stream?q=${encodeURIComponent(query)}`, { signal });
+  if (!response.ok || !response.body) {
+    const data = await response.json().catch(() => ({}));
+    throw new Error(data.error || "검색 실패");
+  }
+
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+  let totalProviders = 0;
+  let completedProviders = 0;
+  let searchedAt = "";
+  let flow = null;
+  const streamedResults = [];
+
+  while (true) {
+    const { value, done } = await reader.read();
+    if (done) {
+      break;
+    }
+
+    buffer += decoder.decode(value, { stream: true });
+    const chunks = buffer.split("\n\n");
+    buffer = chunks.pop() || "";
+
+    for (const chunk of chunks) {
+      const event = parseSseChunk(chunk);
+      if (!event || requestId !== activeSearchRequestId) {
+        continue;
+      }
+
+      if (event.type === "start") {
+        totalProviders = event.data.totalProviders || 0;
+        searchedAt = event.data.searchedAt || "";
+        resultMeta.textContent = `"${query}" 검색 중... 먼저 도착한 결과부터 표시합니다.`;
+        searchTime.textContent = formatSearchedAt(searchedAt);
+      }
+
+      if (event.type === "provider") {
+        completedProviders += 1;
+        streamedResults.push(event.data);
+        renderResults(streamedResults);
+        resultMeta.textContent = `"${query}" 기준 ${completedProviders}/${totalProviders || "?"}개 검색처 분석 중`;
+      }
+
+      if (event.type === "flow") {
+        flow = event.data;
+        renderFlow(flow);
+        renderFallbackLinks(flow);
+      }
+
+      if (event.type === "done") {
+        if (!flow) {
+          flow = buildFallbackFlow(query, streamedResults);
+          renderFlow(flow);
+          renderFallbackLinks(flow);
+        }
+        resultMeta.textContent = `"${query}" 기준 ${streamedResults.length}개 검색처 분석 완료`;
+        searchTime.textContent = formatSearchedAt(event.data.searchedAt || searchedAt);
+      }
+    }
+  }
+}
+
+function parseSseChunk(chunk) {
+  const lines = chunk.split("\n");
+  const type = lines.find((line) => line.startsWith("event: "))?.slice(7).trim() || "message";
+  const dataText = lines
+    .filter((line) => line.startsWith("data: "))
+    .map((line) => line.slice(6))
+    .join("\n");
+  if (!dataText) {
+    return null;
+  }
+  return {
+    type,
+    data: JSON.parse(dataText)
+  };
+}
+
+function buildFallbackFlow(query, results) {
+  const millie = results.find((result) => result.providerId === "millie");
+  const hasMillieExactEbook = Boolean(
+    millie?.books?.some(
+      (book) =>
+        book.contentKind === "ebook" &&
+        book.isExactTitleMatch &&
+        book.decision?.state === "borrow_now"
+    )
+  );
+  const hasMillieExactAny = Boolean(
+    millie?.books?.some((book) => book.isExactTitleMatch && book.decision?.state === "borrow_now")
+  );
+  const hasSeoulBorrowable = results.some(
+    (result) =>
+      !result.isExternalProvider &&
+      !result.isPhysicalProvider &&
+      result.books?.some((book) => book.decision?.state === "borrow_now" && isStrongTitleCandidate(book))
+  );
+  const hasPhysicalBorrowable = results.some(
+    (result) => result.isPhysicalProvider && result.books?.some((book) => book.decision?.state === "borrow_now")
+  );
+
+  return {
+    phase1: {
+      label: "밀리의서재 확인",
+      completed: true,
+      hasBorrowable: hasMillieExactAny,
+      hasPrimary: hasMillieExactEbook,
+      searchURL: `https://www.millie.co.kr/v4/library/search/${encodeURIComponent(query)}`
+    },
+    phase2: {
+      label: "서울 전역 전자책 검색",
+      completed: true,
+      enabled: !hasMillieExactEbook,
+      hasBorrowable: hasSeoulBorrowable
+    },
+    phase3: {
+      label: "은평구공공도서관 실물 대출 확인",
+      enabled: !hasMillieExactEbook && !hasSeoulBorrowable,
+      hasBorrowable: hasPhysicalBorrowable,
+      searchURL: `https://lib.eplib.or.kr/unified/search.asp?search_word=${encodeURIComponent(query)}`,
+      externalLinks: [
+        {
+          id: "eunpyeong-public",
+          label: "은평구공공도서관 검색",
+          searchURL: `https://lib.eplib.or.kr/unified/search.asp?search_word=${encodeURIComponent(query)}`
+        }
+      ]
+    }
+  };
+}
 
 async function loadSupportedLibraries() {
   if (!supportedLibrariesEl || !supportedCountEl) {
@@ -374,6 +512,16 @@ function compareProviders(a, b) {
     return rankA - rankB;
   }
 
+  const exactDiff = (b.providerExactBorrowCount || 0) - (a.providerExactBorrowCount || 0);
+  if (exactDiff !== 0) {
+    return exactDiff;
+  }
+
+  const titleDiff = (b.providerTitleScore || 0) - (a.providerTitleScore || 0);
+  if (titleDiff !== 0) {
+    return titleDiff;
+  }
+
   const sizeDiff = (b.books?.length || 0) - (a.books?.length || 0);
   if (sizeDiff !== 0) {
     return sizeDiff;
@@ -404,18 +552,30 @@ function providerRank(provider) {
 function deriveProviderStats(provider) {
   const books = provider.books || [];
   const immediateBorrowBooks = books.filter(
-    (book) => book.decision?.state === "borrow_now" && book.decision?.reason !== "subscription_provider_listed"
+    (book) =>
+      book.decision?.state === "borrow_now" &&
+      book.decision?.reason !== "subscription_provider_listed" &&
+      isStrongTitleCandidate(book)
   );
   const subscriptionBorrowBooks = books.filter(
-    (book) => book.decision?.state === "borrow_now" && book.decision?.reason === "subscription_provider_listed"
+    (book) =>
+      book.decision?.state === "borrow_now" &&
+      book.decision?.reason === "subscription_provider_listed" &&
+      isStrongTitleCandidate(book)
+  );
+  const exactBorrowBooks = books.filter(
+    (book) => book.decision?.state === "borrow_now" && book.isExactTitleMatch
   );
   const providerTopAvailability = Math.max(0, ...immediateBorrowBooks.map((book) => book.availableCount || 0));
+  const providerTitleScore = Math.max(0, ...books.map((book) => book.titleMatchScore || 0));
 
   return {
     ...provider,
     providerInstantCount: immediateBorrowBooks.length,
     providerSubscriptionCount: subscriptionBorrowBooks.length,
-    providerUrgencyScore: immediateBorrowBooks.length * 100 + providerTopAvailability
+    providerExactBorrowCount: exactBorrowBooks.length,
+    providerUrgencyScore: immediateBorrowBooks.length * 100 + providerTopAvailability,
+    providerTitleScore
   };
 }
 
@@ -520,8 +680,11 @@ function compareStoreNames(a, b) {
 }
 
 function scoreBookPriority(book) {
+  let score = book.titleMatchScore || 0;
+  if (book.isLargePrint) {
+    score -= 250;
+  }
   if (book.localLibraryAccess) {
-    let score = 0;
     if (book.decision?.state === "borrow_now") {
       score += 1000;
     }
@@ -537,19 +700,28 @@ function scoreBookPriority(book) {
     return score;
   }
   if (book.subscriptionAccess) {
-    return book.contentKind === "ebook" ? 350 : 250;
+    if (book.decision?.state === "borrow_now") {
+      score += book.contentKind === "ebook" ? 350 : 250;
+    } else if (book.decision?.state === "unavailable") {
+      score -= 100;
+    }
+    return score;
   }
   const state = book.decision?.state;
   if (state === "borrow_now") {
-    return 300 + (book.availableCount || 0);
+    return score + 300 + (book.availableCount || 0);
   }
   if (state === "reserve") {
-    return 200;
+    return score + 200;
   }
   if (state === "unknown") {
-    return 100;
+    return score + 100;
   }
-  return 0;
+  return score;
+}
+
+function isStrongTitleCandidate(book) {
+  return ["exact", "starts_with", "contains"].includes(book?.titleMatch?.level);
 }
 
 function renderState(decision) {
@@ -570,7 +742,7 @@ function renderState(decision) {
     }
     if (decision.reason === "subscription_provider_listed") {
       return {
-        text: `구독 서비스에서 이용 가능 (신뢰도: ${decision.confidence})`,
+        text: `밀리에서 앱 이용 가능 (신뢰도: ${decision.confidence})`,
         textClass: "ok",
         containerClass: "state-borrow"
       };
@@ -589,6 +761,13 @@ function renderState(decision) {
     };
   }
   if (decision.state === "unavailable") {
+    if (decision.reason === "subscription_provider_unavailable") {
+      return {
+        text: `밀리 검색 노출 · 대출/열람 불가 (신뢰도: ${decision.confidence})`,
+        textClass: "muted",
+        containerClass: "state-unavailable"
+      };
+    }
     return {
       text: `미소장/이용불가 (신뢰도: ${decision.confidence})`,
       textClass: "muted",
@@ -605,7 +784,10 @@ function renderState(decision) {
 function renderCounts(book) {
   if (book.subscriptionAccess) {
     const segments = [];
-    segments.push(`유형: ${book.contentKindLabel || "구독 콘텐츠"}`);
+    segments.push(`유형: 밀리 ${book.contentKindLabel || "구독 콘텐츠"}`);
+    if (book.titleMatchLabel) {
+      segments.push(`제목: ${book.titleMatchLabel}`);
+    }
     if (book.rawStatusText) {
       segments.push(book.rawStatusText);
     }
@@ -619,8 +801,14 @@ function renderCounts(book) {
     if (book.localReturnPlanDate) {
       segments.push(`반납예정: ${book.localReturnPlanDate}`);
     }
+    if (book.titleMatchLabel) {
+      segments.push(`제목: ${book.titleMatchLabel}`);
+    }
+    segments.push(`책단비: ${book.isChaekdanbiReservable ? "가능" : "불가"}`);
+    segments.push(`상호대차 수령: ${book.isMutualLoanPickupAvailable ? "가능" : "불가"}`);
     segments.push(`상호대차: ${book.isMutualLoanAvailable ? "가능" : "불가"}`);
     segments.push(`무인예약: ${book.isUnmannedReservationAvailable ? "가능" : "불가"}`);
+    segments.push(`타관반납: ${book.isOtherLibraryReturnAvailable ? "가능" : "불가"}`);
     if (book.isPreferredDaejo) {
       segments.push("선호: 대조꿈나무/대조동");
     }
@@ -628,6 +816,12 @@ function renderCounts(book) {
   }
 
   const segments = [];
+  if (book.titleMatchLabel) {
+    segments.push(`제목: ${book.titleMatchLabel}`);
+  }
+  if (book.isLargePrint) {
+    segments.push("큰글자책");
+  }
   segments.push(`소장: ${book.holdingsCount ?? "미확인"}`);
   segments.push(`대출가능: ${book.availableCount ?? "미확인"}`);
   segments.push(`대출중: ${book.loanedCount ?? "미확인"}`);
