@@ -1,6 +1,6 @@
 const baseURL = process.env.BASE_URL || "http://localhost:3199";
 const query = process.env.VERIFY_QUERY || "채식주의자";
-const minimumProviderCount = Number(process.env.MIN_PROVIDER_COUNT || 15);
+const minimumProviderCount = Number(process.env.MIN_PROVIDER_COUNT || 14);
 
 const config = await fetchJSON("/api/config/providers");
 const providers = config.libraryProviders || [];

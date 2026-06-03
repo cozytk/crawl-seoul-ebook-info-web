@@ -19,7 +19,6 @@ const libraryProviders = [
   { id: "jungnang", name: "중랑도서관", baseURL: "https://ebook.jungnanglib.seoul.kr/elibrary-front/search/searchList.ink?schClst=all&schDvsn=000&orderByKey=&schTxt={searchTerm}", isEucKR: false, loginURL: "https://ebook.jungnanglib.seoul.kr/elibrary-front/member/login.ink" },
   { id: "ydp", name: "영등포도서관", baseURL: "https://ydplib.dkyobobook.co.kr/search/searchList.ink?schClst=all&schDvsn=000&orderByKey=&schTxt={searchTerm}", isEucKR: false, loginURL: "https://ydplib.dkyobobook.co.kr/member/login.ink", subscriptionListAvailable: true },
   { id: "gangnam", name: "강남도서관", baseURL: "https://ebook.gangnam.go.kr/elibbook/book_info.asp?search=title&strSearch={searchTerm}", isEucKR: true, loginURL: "https://ebook.gangnam.go.kr/elibbook/login.asp" },
-  { id: "songpa", name: "송파도서관", baseURL: "http://ebook.splib.or.kr/search/?srch_order=total&src_key={searchTerm}", isEucKR: false, loginURL: "http://ebook.splib.or.kr/member/login" },
   { id: "dongdaemun", name: "동대문도서관", baseURL: "https://e-book.l4d.or.kr/elibrary-front/search/searchList.ink?schClst=all&schDvsn=000&orderByKey=&schTxt={searchTerm}", isEucKR: false, loginURL: "https://e-book.l4d.or.kr/elibrary-front/main.ink" },
   { id: "nowon", name: "노원구립도서관", baseURL: "https://eb.nowonlib.kr/elibrary-front/search/searchList.ink?schClst=all&schDvsn=000&orderByKey=&schTxt={searchTerm}", isEucKR: false, loginURL: "https://eb.nowonlib.kr/elibrary-front/main.ink" },
   { id: "jongno", name: "종로구도서관", baseURL: "https://elib.jongno.go.kr/search/?srch_order=total&src_key={searchTerm}", isEucKR: false, loginURL: "https://elib.jongno.go.kr/member/login" },
@@ -51,7 +50,7 @@ const queryHeaders = {
 };
 
 const MAX_QUERY_LENGTH = Number(process.env.MAX_QUERY_LENGTH || 80);
-const PROVIDER_FETCH_TIMEOUT_MS = Number(process.env.PROVIDER_FETCH_TIMEOUT_MS || 6500);
+const PROVIDER_FETCH_TIMEOUT_MS = Number(process.env.PROVIDER_FETCH_TIMEOUT_MS || 10000);
 const SEARCH_CACHE_TTL_MS = Number(process.env.SEARCH_CACHE_TTL_MS || 120000);
 const RATE_LIMIT_WINDOW_MS = Number(process.env.RATE_LIMIT_WINDOW_MS || 60000);
 const RATE_LIMIT_MAX_REQUESTS = Number(process.env.RATE_LIMIT_MAX_REQUESTS || 20);
