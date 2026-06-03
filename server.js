@@ -64,7 +64,7 @@ const queryHeaders = {
 };
 
 const MAX_QUERY_LENGTH = Number(process.env.MAX_QUERY_LENGTH || 80);
-const PROVIDER_FETCH_TIMEOUT_MS = Number(process.env.PROVIDER_FETCH_TIMEOUT_MS || 10000);
+const PROVIDER_FETCH_TIMEOUT_MS = Number(process.env.PROVIDER_FETCH_TIMEOUT_MS || 20000);
 const SEARCH_CACHE_TTL_MS = Number(process.env.SEARCH_CACHE_TTL_MS || 120000);
 const RATE_LIMIT_WINDOW_MS = Number(process.env.RATE_LIMIT_WINDOW_MS || 60000);
 const RATE_LIMIT_MAX_REQUESTS = Number(process.env.RATE_LIMIT_MAX_REQUESTS || 20);
@@ -625,15 +625,17 @@ function parseBooksFromMilliePayload(payload, query) {
       }
       const isService = isPositiveFlag(item?.is_service);
       const isEbookRent = isPositiveFlag(item?.is_ebook_rent);
+      const contentKind = resolveMillieContentKind(item);
       statusTextParts.push(isService ? "서비스중" : "서비스 여부 미확인");
-      if (isEbookRent) {
-        statusTextParts.push("전자책 대여 가능");
-      }
+      statusTextParts.push(isEbookRent ? "앱에서 이용 가능" : "이용 방식 확인 필요");
       const rawStatusText = statusTextParts.join(" / ");
 
       return {
         title,
-        storeName: "밀리의서재",
+        storeName: `밀리의서재 · ${contentKind.label}`,
+        contentKind: contentKind.id,
+        contentKindLabel: contentKind.label,
+        subscriptionAccess: true,
         detailURL: item?.book_id
           ? `https://www.millie.co.kr/v4/book/${encodeURIComponent(item.book_id)}`
           : null,
@@ -642,7 +644,7 @@ function parseBooksFromMilliePayload(payload, query) {
         previewOnclick: "",
         coverImageURL: item?.content_thumb_url || null,
         holdingsCount: null,
-        availableCount: isService ? 1 : null,
+        availableCount: null,
         loanedCount: null,
         reservationCount: null,
         decision: isService
@@ -660,6 +662,21 @@ function parseBooksFromMilliePayload(payload, query) {
       };
     })
     .filter(Boolean);
+}
+
+function resolveMillieContentKind(item) {
+  const category = compactText([item?.category, item?.category2].filter(Boolean).join(" "));
+  const contentCode = String(item?.content_code || "");
+  const fileTypeCode = String(item?.file_type_code || "");
+  const isAudio =
+    /오디오|도슨트/.test(category) ||
+    contentCode === "806" ||
+    contentCode === "890" ||
+    /^90[125]$/.test(fileTypeCode);
+
+  return isAudio
+    ? { id: "audiobook", label: "오디오북" }
+    : { id: "ebook", label: "전자책" };
 }
 
 function decideAvailability({ text, holdingsCount, availableCount, reservationCount }) {

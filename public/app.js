@@ -524,6 +524,13 @@ function renderState(decision) {
     };
   }
   if (decision.state === "borrow_now") {
+    if (decision.reason === "subscription_provider_listed") {
+      return {
+        text: `구독 서비스에서 이용 가능 (신뢰도: ${decision.confidence})`,
+        textClass: "ok",
+        containerClass: "state-borrow"
+      };
+    }
     return {
       text: `지금 대출 가능 (신뢰도: ${decision.confidence})`,
       textClass: "ok",
@@ -552,6 +559,15 @@ function renderState(decision) {
 }
 
 function renderCounts(book) {
+  if (book.subscriptionAccess) {
+    const segments = [];
+    segments.push(`유형: ${book.contentKindLabel || "구독 콘텐츠"}`);
+    if (book.rawStatusText) {
+      segments.push(book.rawStatusText);
+    }
+    return segments.join(" / ");
+  }
+
   const segments = [];
   segments.push(`소장: ${book.holdingsCount ?? "미확인"}`);
   segments.push(`대출가능: ${book.availableCount ?? "미확인"}`);
