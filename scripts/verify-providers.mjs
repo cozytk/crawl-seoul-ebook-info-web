@@ -3,10 +3,12 @@ const query = process.env.VERIFY_QUERY || "채식주의자";
 const minimumProviderCount = Number(process.env.MIN_PROVIDER_COUNT || 14);
 
 const config = await fetchJSON("/api/config/providers");
-const providers = config.libraryProviders || [];
+const libraryProviders = config.libraryProviders || [];
+const externalProviders = config.externalProviders || [];
+const providers = [...libraryProviders, ...externalProviders];
 
-if (providers.length < minimumProviderCount) {
-  fail(`provider count ${providers.length} is below expected minimum ${minimumProviderCount}`);
+if (libraryProviders.length < minimumProviderCount) {
+  fail(`library provider count ${libraryProviders.length} is below expected minimum ${minimumProviderCount}`);
 }
 
 const search = await fetchJSON(`/api/search?q=${encodeURIComponent(query)}`);
@@ -31,7 +33,7 @@ if (!parsedProviders.length) {
 }
 
 const supportedIds = new Set(providers.map((provider) => provider.id));
-for (const requiredId of ["eunpyeong-ebook", "seocho", "seoul"]) {
+for (const requiredId of ["eunpyeong-ebook", "seocho", "seoul", "millie"]) {
   if (!supportedIds.has(requiredId)) {
     fail(`required provider missing: ${requiredId}`);
   }
@@ -39,7 +41,9 @@ for (const requiredId of ["eunpyeong-ebook", "seocho", "seoul"]) {
 
 console.log(
   [
-    `ok providers=${providers.length}`,
+    `ok libraries=${libraryProviders.length}`,
+    `external=${externalProviders.length}`,
+    `providers=${providers.length}`,
     `query="${query}"`,
     `parsedProviders=${parsedProviders.length}`,
     `books=${results.reduce((sum, result) => sum + result.books.length, 0)}`

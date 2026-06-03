@@ -27,6 +27,18 @@ const libraryProviders = [
   { id: "seocho", name: "서초구 전자도서관", baseURL: "https://e-book.seocholib.or.kr/search?keyword={searchTerm}", apiBaseURL: "https://e-book.seocholib.or.kr", isEucKR: false, loginURL: "https://e-book.seocholib.or.kr/login" }
 ];
 
+const externalProviders = [
+  {
+    id: "millie",
+    name: "밀리의서재",
+    baseURL: "https://www.millie.co.kr/v4/library/search/{searchTerm}",
+    isEucKR: false,
+    loginURL: "https://www.millie.co.kr/v3/login?isReferer=Y",
+    subscriptionListAvailable: true,
+    externalProvider: true
+  }
+];
+
 const eunpyeongUnified = {
   id: "eunpyeong-unified",
   name: "은평구립도서관 통합검색",
@@ -42,6 +54,8 @@ const samStore = {
   isEucKR: false,
   loginURL: "https://order.kyobobook.co.kr/login"
 };
+
+const searchProviders = [...libraryProviders, ...externalProviders];
 
 const queryHeaders = {
   "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/132.0.0.0 Safari/537.36",
@@ -64,6 +78,10 @@ app.use(express.static(path.join(__dirname, "public")));
 app.get("/api/config/providers", (_, res) => {
   res.json({
     libraryProviders: libraryProviders.map((provider) => ({
+      ...provider,
+      libraryModel: resolveLibraryModel(provider)
+    })),
+    externalProviders: externalProviders.map((provider) => ({
       ...provider,
       libraryModel: resolveLibraryModel(provider)
     })),
@@ -92,11 +110,11 @@ app.get("/api/search", async (req, res) => {
   }
 
   const libraryResults = await Promise.all(
-    libraryProviders.map((provider) => searchProvider(provider, query))
+    searchProviders.map((provider) => searchProvider(provider, query))
   );
 
   const anyBorrowable = libraryResults.some((result) =>
-    result.books.some((book) => isImmediateBorrowCandidate(book))
+    !result.isExternalProvider && result.books.some((book) => isImmediateBorrowCandidate(book))
   );
 
   const flow = {
@@ -111,9 +129,13 @@ app.get("/api/search", async (req, res) => {
       searchURL: constructURL(eunpyeongUnified, query)
     },
     phase3: {
-      label: "교보 SAM 구매 대안",
+      label: "외부 전자책 서비스 대안",
       enabled: !anyBorrowable,
-      searchURL: constructURL(samStore, query)
+      searchURL: constructURL(samStore, query),
+      externalLinks: [
+        { id: "millie", label: "밀리의서재 검색", searchURL: constructURL(externalProviders[0], query) },
+        { id: "kyobo-sam", label: "교보 SAM 검색", searchURL: constructURL(samStore, query) }
+      ]
     }
   };
 
@@ -151,6 +173,10 @@ async function searchProvider(provider, query) {
       const seoulResult = await fetchSeoulBooks(provider, query, controller.signal);
       response = seoulResult.response;
       parsedBooks = seoulResult.books;
+    } else if (provider.id === "millie") {
+      const millieResult = await fetchMillieBooks(provider, query, controller.signal);
+      response = millieResult.response;
+      parsedBooks = millieResult.books;
     } else if (provider.apiBaseURL) {
       const ecoResult = await fetchEcoBooks(provider, query, controller.signal);
       response = ecoResult.response;
@@ -173,7 +199,7 @@ async function searchProvider(provider, query) {
           providerId: provider.id,
           providerName: provider.name,
           decision:
-            provider.subscriptionListAvailable && book.title
+            provider.subscriptionListAvailable && !provider.externalProvider && book.title
               ? {
                   state: "borrow_now",
                   confidence: "medium",
@@ -189,6 +215,7 @@ async function searchProvider(provider, query) {
       searchURL,
       loginURL: provider.loginURL,
       isSubscriptionProvider: Boolean(provider.subscriptionListAvailable),
+      isExternalProvider: Boolean(provider.externalProvider),
       libraryModel: resolveLibraryModel(provider),
       searchable: response.ok,
       ok: response.ok,
@@ -203,6 +230,7 @@ async function searchProvider(provider, query) {
       searchURL,
       loginURL: provider.loginURL,
       isSubscriptionProvider: Boolean(provider.subscriptionListAvailable),
+      isExternalProvider: Boolean(provider.externalProvider),
       libraryModel: resolveLibraryModel(provider),
       searchable: false,
       ok: false,
@@ -213,6 +241,39 @@ async function searchProvider(provider, query) {
   } finally {
     clearTimeout(timeoutId);
   }
+}
+
+async function fetchMillieBooks(provider, query, signal) {
+  const apiURL = new URL("https://live-api.millie.co.kr/v3/search/content");
+  apiURL.searchParams.set("keyword", query);
+  apiURL.searchParams.set("orderBy", "accuracy");
+  apiURL.searchParams.set("startPage", "1");
+  apiURL.searchParams.set("limitCount", "8");
+  apiURL.searchParams.set("searchType", "isInactive");
+  apiURL.searchParams.set("rent_yn", "N");
+  apiURL.searchParams.set("adult_yn", "Y");
+
+  const response = await fetch(apiURL, {
+    headers: {
+      ...queryHeaders,
+      Accept: "application/json, text/plain, */*",
+      Origin: "https://www.millie.co.kr",
+      Referer: constructURL(provider, query)
+    },
+    signal
+  });
+
+  let payload = null;
+  try {
+    payload = await response.json();
+  } catch {
+    payload = null;
+  }
+
+  return {
+    response,
+    books: parseBooksFromMilliePayload(payload, query)
+  };
 }
 
 async function fetchSeoulBooks(provider, query, signal) {
@@ -537,6 +598,70 @@ function parseBooksFromEcoPayload(payload, query, provider) {
     .filter(Boolean);
 }
 
+function parseBooksFromMilliePayload(payload, query) {
+  const list = Array.isArray(payload?.RESP_DATA?.list) ? payload.RESP_DATA.list : [];
+  const normalizedQuery = normalizeKorean(query);
+
+  return list
+    .map((item) => {
+      const title = compactText(item?.content_name || "");
+      if (!title) {
+        return null;
+      }
+
+      const normalizedTitle = normalizeKorean(title);
+      if (normalizedQuery && !normalizedTitle.includes(normalizedQuery)) {
+        return null;
+      }
+
+      const author = compactText(item?.author || "");
+      const category = compactText([item?.category, item?.category2].filter(Boolean).join(" / "));
+      const statusTextParts = [];
+      if (author) {
+        statusTextParts.push(`저자 ${author}`);
+      }
+      if (category) {
+        statusTextParts.push(`분류 ${category}`);
+      }
+      const isService = isPositiveFlag(item?.is_service);
+      const isEbookRent = isPositiveFlag(item?.is_ebook_rent);
+      statusTextParts.push(isService ? "서비스중" : "서비스 여부 미확인");
+      if (isEbookRent) {
+        statusTextParts.push("전자책 대여 가능");
+      }
+      const rawStatusText = statusTextParts.join(" / ");
+
+      return {
+        title,
+        storeName: "밀리의서재",
+        detailURL: item?.book_id
+          ? `https://www.millie.co.kr/v4/book/${encodeURIComponent(item.book_id)}`
+          : null,
+        detailOnclick: "",
+        previewURL: null,
+        previewOnclick: "",
+        coverImageURL: item?.content_thumb_url || null,
+        holdingsCount: null,
+        availableCount: isService ? 1 : null,
+        loanedCount: null,
+        reservationCount: null,
+        decision: isService
+          ? {
+              state: "borrow_now",
+              confidence: "medium",
+              reason: "subscription_provider_listed"
+            }
+          : {
+              state: "unknown",
+              confidence: "low",
+              reason: "subscription_provider_unclear"
+            },
+        rawStatusText
+      };
+    })
+    .filter(Boolean);
+}
+
 function decideAvailability({ text, holdingsCount, availableCount, reservationCount }) {
   const availableToken = /(대출\s*가능|대출가능|바로대출|즉시대출)/.test(text);
   const hardUnavailableToken = /(미소장|소장\s*없음|대출\s*불가|이용\s*불가|열람\s*불가)/.test(text);
@@ -675,6 +800,19 @@ function pickNumber(text, patterns) {
 function toFiniteNumber(value) {
   const number = Number(value);
   return Number.isFinite(number) ? number : null;
+}
+
+function isPositiveFlag(value) {
+  if (typeof value === "boolean") {
+    return value;
+  }
+  if (typeof value === "number") {
+    return value > 0;
+  }
+  if (typeof value === "string") {
+    return /^(y|yes|true|1)$/i.test(value.trim());
+  }
+  return false;
 }
 
 function uniqueByTitleAndStore(items) {

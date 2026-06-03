@@ -62,7 +62,7 @@ form.addEventListener("submit", async (event) => {
 
     renderFlow(data.flow);
     renderResults(data.libraryResults);
-    resultMeta.textContent = `"${data.query}" 기준 ${data.libraryResults.length}개 도서관 분석 완료`;
+    resultMeta.textContent = `"${data.query}" 기준 ${data.libraryResults.length}개 검색처 분석 완료`;
     searchTime.textContent = formatSearchedAt(data.searchedAt);
     renderFallbackLinks(data.flow);
   } catch (error) {
@@ -101,32 +101,33 @@ async function loadSupportedLibraries() {
       throw new Error(data.error || "설정 조회 실패");
     }
 
-    renderSupportedLibraries(data.libraryProviders || []);
+    renderSupportedLibraries(data.libraryProviders || [], data.externalProviders || []);
   } catch {
-    supportedCountEl.textContent = "지원 도서관 확인 실패";
+    supportedCountEl.textContent = "지원 검색처 확인 실패";
     renderSupportedLibrariesEmpty("목록을 불러오지 못했습니다.");
   }
 }
 
-function renderSupportedLibraries(providers) {
+function renderSupportedLibraries(providers, externalProviders = []) {
   if (!supportedLibrariesEl || !supportedCountEl) {
     return;
   }
 
-  supportedCountEl.textContent = `지원 도서관 ${providers.length}개`;
+  const allProviders = [...providers, ...externalProviders];
+  supportedCountEl.textContent = `지원 도서관 ${providers.length}개 · 외부 ${externalProviders.length}개`;
   supportedLibrariesEl.replaceChildren();
 
-  if (!providers.length) {
-    renderSupportedLibrariesEmpty("표시할 도서관이 없습니다.");
+  if (!allProviders.length) {
+    renderSupportedLibrariesEmpty("표시할 검색처가 없습니다.");
     return;
   }
 
   const fragment = document.createDocumentFragment();
-  for (const provider of providers) {
+  for (const provider of allProviders) {
     const chip = document.createElement("span");
     const isSubscription = provider.libraryModel === "subscription";
     chip.className = `library-chip ${isSubscription ? "is-subscription" : "is-owned"}`;
-    chip.textContent = `${provider.name} · ${isSubscription ? "구독형" : "소장형"}`;
+    chip.textContent = `${provider.name} · ${provider.externalProvider ? "외부 구독형" : isSubscription ? "구독형" : "소장형"}`;
     fragment.appendChild(chip);
   }
   supportedLibrariesEl.appendChild(fragment);
@@ -246,7 +247,7 @@ function renderResults(results) {
   resultEl.replaceChildren();
 
   if (!sortedProviders.length) {
-    renderResultNotice("표시할 도서관 결과가 없습니다.", "result-empty");
+    renderResultNotice("표시할 검색 결과가 없습니다.", "result-empty");
     return;
   }
 
@@ -256,7 +257,7 @@ function renderResults(results) {
     const root = card.querySelector(".provider-card");
 
     root.querySelector(".provider-name").textContent = provider.providerName;
-    root.querySelector(".provider-meta").textContent = `파싱 도서 ${items.length}권 · ${getLibraryModelLabel(provider.libraryModel)}`;
+    root.querySelector(".provider-meta").textContent = `파싱 도서 ${items.length}권 · ${getLibraryModelLabel(provider)}`;
     root.querySelector(".search-link").href = provider.searchURL;
     root.querySelector(".login-link").href = provider.loginURL;
 
@@ -266,7 +267,7 @@ function renderResults(results) {
     modelTag.className = `provider-tag ${
       provider.libraryModel === "subscription" ? "is-subscription" : "is-owned"
     }`;
-    modelTag.textContent = getLibraryModelLabel(provider.libraryModel);
+    modelTag.textContent = getLibraryModelLabel(provider);
     providerTags.appendChild(modelTag);
     for (const storeName of storeNames.sort(compareStoreNames)) {
       const storeTag = document.createElement("span");
@@ -559,8 +560,13 @@ function renderCounts(book) {
   return segments.join(" / ");
 }
 
-function getLibraryModelLabel(libraryModel) {
-  if (libraryModel === "subscription") {
+function getLibraryModelLabel(providerOrModel) {
+  const provider =
+    typeof providerOrModel === "string" ? { libraryModel: providerOrModel } : providerOrModel || {};
+  if (provider.isExternalProvider || provider.externalProvider) {
+    return "외부 구독형 서비스";
+  }
+  if (provider.libraryModel === "subscription") {
     return "구독형 도서관";
   }
   return "소장형 도서관";
@@ -590,16 +596,21 @@ function renderFallbackLinks(flow) {
     ? "은평 통합검색 열기 (활성)"
     : "은평 통합검색 열기";
 
-  const samLink = document.createElement("a");
-  samLink.href = flow.phase3.searchURL;
-  samLink.target = "_blank";
-  samLink.rel = "noopener noreferrer";
-  samLink.textContent = flow.phase3.enabled
-    ? "외부 전자책 서비스 검색 열기 (활성)"
-    : "외부 전자책 서비스 검색 열기";
+  const externalLinks = flow.phase3.externalLinks?.length
+    ? flow.phase3.externalLinks
+    : [{ label: "외부 전자책 서비스 검색", searchURL: flow.phase3.searchURL }];
 
   fallbackLinks.appendChild(eunpyeongLink);
-  fallbackLinks.appendChild(samLink);
+  for (const externalLink of externalLinks) {
+    const link = document.createElement("a");
+    link.href = externalLink.searchURL;
+    link.target = "_blank";
+    link.rel = "noopener noreferrer";
+    link.textContent = flow.phase3.enabled
+      ? `${externalLink.label} 열기 (활성)`
+      : `${externalLink.label} 열기`;
+    fallbackLinks.appendChild(link);
+  }
 }
 
 function formatSearchedAt(isoString) {
