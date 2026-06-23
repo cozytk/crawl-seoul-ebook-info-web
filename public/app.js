@@ -551,16 +551,18 @@ function providerRank(provider) {
 
 function deriveProviderStats(provider) {
   const books = provider.books || [];
+  const isSubscriptionBorrowReason = (reason) =>
+    reason === "subscription_provider_listed" || reason === "library_subscription_provider_listed";
   const immediateBorrowBooks = books.filter(
     (book) =>
       book.decision?.state === "borrow_now" &&
-      book.decision?.reason !== "subscription_provider_listed" &&
+      !isSubscriptionBorrowReason(book.decision?.reason) &&
       isStrongTitleCandidate(book)
   );
   const subscriptionBorrowBooks = books.filter(
     (book) =>
       book.decision?.state === "borrow_now" &&
-      book.decision?.reason === "subscription_provider_listed" &&
+      isSubscriptionBorrowReason(book.decision?.reason) &&
       isStrongTitleCandidate(book)
   );
   const exactBorrowBooks = books.filter(
@@ -747,6 +749,13 @@ function renderState(decision) {
         containerClass: "state-borrow"
       };
     }
+    if (decision.reason === "library_subscription_provider_listed") {
+      return {
+        text: `구독형 도서관에서 바로 열람 가능 (신뢰도: ${decision.confidence})`,
+        textClass: "ok",
+        containerClass: "state-borrow"
+      };
+    }
     return {
       text: `지금 대출 가능 (신뢰도: ${decision.confidence})`,
       textClass: "ok",
@@ -754,6 +763,13 @@ function renderState(decision) {
     };
   }
   if (decision.state === "reserve") {
+    if (decision.reason === "eunpyeong_public_reservable") {
+      return {
+        text: `예약 가능 (신뢰도: ${decision.confidence})`,
+        textClass: "warn",
+        containerClass: "state-reserve"
+      };
+    }
     return {
       text: `예약/대기 상태 (신뢰도: ${decision.confidence})`,
       textClass: "warn",
@@ -763,7 +779,7 @@ function renderState(decision) {
   if (decision.state === "unavailable") {
     if (decision.reason === "subscription_provider_unavailable") {
       return {
-        text: `밀리 검색 노출 · 대출/열람 불가 (신뢰도: ${decision.confidence})`,
+        text: `밀리에서 현재 볼 수 없음 (신뢰도: ${decision.confidence})`,
         textClass: "muted",
         containerClass: "state-unavailable"
       };

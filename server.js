@@ -299,7 +299,7 @@ async function searchProvider(provider, query) {
               ? {
                   state: "borrow_now",
                   confidence: "medium",
-                  reason: "subscription_provider_listed"
+                  reason: "library_subscription_provider_listed"
                 }
               : book.decision
         };
@@ -630,6 +630,8 @@ function parseBooksFromSeoulPayload(payload) {
         ? `https://elib.seoul.go.kr/contents/detail.do?no=${encodeURIComponent(item.contentsKey)}`
         : null;
 
+      const isSubscriptionContent = /구독형/.test(compactText(item?.contentsTypeDesc || ""));
+
       return {
         title,
         storeName: compactText(item?.contentsTypeDesc || ""),
@@ -642,12 +644,18 @@ function parseBooksFromSeoulPayload(payload) {
         availableCount,
         loanedCount,
         reservationCount,
-        decision: decideAvailability({
-          text: rawStatusText,
-          holdingsCount,
-          availableCount,
-          reservationCount
-        }),
+        decision: isSubscriptionContent
+          ? {
+              state: "borrow_now",
+              confidence: "high",
+              reason: "library_subscription_provider_listed"
+            }
+          : decideAvailability({
+              text: rawStatusText,
+              holdingsCount,
+              availableCount,
+              reservationCount
+            }),
         rawStatusText
       };
     })
@@ -877,6 +885,7 @@ function mapEunpyeongCollectionToBook(book, collection, speciesKey, pubFormCode)
   const loanStatus = compactText(collection?.loanStatus || "");
   const reservationCount = toFiniteNumber(collection?.reservationCount) || 0;
   const isAvailable = /대출가능/.test(loanStatus);
+  const isReservationAvailable = isPositiveFlag(collection?.isActiveResvYn) || /상호대차진행자료/.test(loanStatus);
   const serviceAvailability = getEunpyeongLibraryServiceAvailability(libName);
   const apiMutualLoanAvailable =
     isPositiveFlag(collection?.isActiveMutualLoanYn) || isPositiveFlag(collection?.isActiveDeliveryYn);
@@ -891,6 +900,7 @@ function mapEunpyeongCollectionToBook(book, collection, speciesKey, pubFormCode)
     loanStatus,
     collection?.returnPlanDate ? `반납예정 ${collection.returnPlanDate}` : "",
     `예약 ${reservationCount}`,
+    isReservationAvailable ? "예약 가능" : "",
     `책단비 ${serviceAvailability.chaekdanbi ? "가능" : "불가"}`,
     `상호대차 수령 ${serviceAvailability.mutualPickup ? "가능" : "불가"}`,
     `상호대차 ${isMutualLoanAvailable ? "가능" : "불가"}`,
@@ -934,7 +944,13 @@ function mapEunpyeongCollectionToBook(book, collection, speciesKey, pubFormCode)
           confidence: "high",
           reason: "eunpyeong_public_available"
         }
-      : reservationCount > 0 || /예약/.test(loanStatus)
+      : isReservationAvailable
+        ? {
+            state: "reserve",
+            confidence: "high",
+            reason: "eunpyeong_public_reservable"
+          }
+        : reservationCount > 0 || /예약/.test(loanStatus)
         ? {
             state: "reserve",
             confidence: "high",

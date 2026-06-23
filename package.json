@@ -6,11 +6,16 @@
   "scripts": {
     "start": "node server.js",
     "dev": "node --watch server.js",
+    "verify:ui": "playwright test scripts/availability-regression.spec.mjs --workers=1 --reporter=line",
+    "verify:regressions": "node scripts/verify-regressions.mjs",
     "verify:providers": "node scripts/verify-providers.mjs"
   },
   "dependencies": {
     "cheerio": "^1.0.0",
     "express": "^4.21.2",
     "iconv-lite": "^0.6.3"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.61.0"
   }
 }
