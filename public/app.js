@@ -1,9 +1,9 @@
 const form = document.querySelector("#search-form");
 const queryInput = document.querySelector("#q");
-const decisionBoard = document.querySelector("#decision-board");
-const resultEl = document.querySelector("#result");
-const rowTemplate = document.querySelector("#book-row-template");
-const providerTemplate = document.querySelector("#ledger-provider-template");
+const routePanel = document.querySelector("#route-panel");
+const resultEl = document.querySelector("#evidence-feed");
+const rowTemplate = document.querySelector("#copy-line-template");
+const providerTemplate = document.querySelector("#source-block-template");
 const resultMeta = document.querySelector("#result-meta");
 const searchTime = document.querySelector("#search-time");
 const supportedCountEl = document.querySelector("#supported-count");
@@ -17,7 +17,7 @@ let activeSearchRequestId = 0;
 init();
 
 async function init() {
-  renderDecisionBoardPlaceholder();
+  renderRoutePanelPlaceholder();
   await loadSupportedLibraries();
 }
 
@@ -36,8 +36,8 @@ form.addEventListener("submit", async (event) => {
   const requestId = ++activeSearchRequestId;
   activeSearchController = controller;
 
-  renderDecisionBoardLoading(query);
-  renderResultNotice("검색 중입니다. 도서관 페이지를 순차 분석하고 있어요.", "loading-state");
+  renderRoutePanelLoading(query);
+  renderResultNotice("검색 중입니다. 도서관 페이지를 순차 분석하고 있어요.", "evidence-loading");
   resultEl.setAttribute("aria-busy", "true");
   resultMeta.textContent = `"${query}" 검색 중...`;
   searchTime.textContent = "";
@@ -78,8 +78,8 @@ form.addEventListener("submit", async (event) => {
     }
 
     const message = error instanceof Error ? error.message : "알 수 없는 오류";
-    renderDecisionBoardError(message);
-    renderResultNotice(`오류: ${message}`, "result-error");
+    renderRoutePanelError(message);
+    renderResultNotice(`오류: ${message}`, "evidence-error");
     resultMeta.textContent = "오류가 발생했습니다.";
     searchTime.textContent = "";
   } finally {
@@ -207,7 +207,7 @@ function renderSupportedLibraries(providers, externalProviders = [], physicalPro
   for (const provider of allProviders) {
     const chip = document.createElement("span");
     const isSubscription = provider.libraryModel === "subscription";
-    chip.className = `library-chip ${isSubscription ? "is-subscription" : "is-owned"}`;
+    chip.className = `source-pill ${isSubscription ? "is-subscription" : "is-owned"}`;
     chip.textContent = `${provider.name} · ${
       provider.physicalProvider ? "실물 대출" : provider.externalProvider ? "외부 구독형" : isSubscription ? "구독형" : "소장형"
     }`;
@@ -240,97 +240,93 @@ function renderResultNotice(message, className) {
   resultEl.appendChild(notice);
 }
 
-function renderDecisionBoardPlaceholder() {
-  if (!decisionBoard) {
+function renderRoutePanelPlaceholder() {
+  if (!routePanel) {
     return;
   }
-  decisionBoard.className = "decision-runway";
-  decisionBoard.setAttribute("data-no-left-rails", "true");
-  decisionBoard.setAttribute("aria-labelledby", "decision-runway-title");
-  decisionBoard.setAttribute("aria-busy", "false");
+  routePanel.className = "route-panel";
+  routePanel.setAttribute("aria-labelledby", "route-panel-title");
+  routePanel.setAttribute("aria-busy", "false");
   const steps = buildAvailabilityDecisions([], { isComplete: false }).map((decision) => ({
     ...decision,
     label: "검색 전",
     text: "검색하면 이 경로의 가능 여부를 판정합니다.",
     tone: "pending"
   }));
-  decisionBoard.replaceChildren(buildDecisionBoardShell("검색하면 읽기, 대출, 예약 경로를 한 번에 정리합니다.", steps));
+  routePanel.replaceChildren(buildRoutePanelShell("검색하면 읽기, 대출, 예약 경로를 한 번에 정리합니다.", steps));
 }
 
-function renderDecisionBoardLoading(query) {
-  if (!decisionBoard) {
+function renderRoutePanelLoading(query) {
+  if (!routePanel) {
     return;
   }
-  decisionBoard.className = "decision-runway";
-  decisionBoard.setAttribute("data-no-left-rails", "true");
-  decisionBoard.setAttribute("aria-labelledby", "decision-runway-title");
-  decisionBoard.setAttribute("aria-busy", "true");
+  routePanel.className = "route-panel";
+  routePanel.setAttribute("aria-labelledby", "route-panel-title");
+  routePanel.setAttribute("aria-busy", "true");
   const loadingSteps = buildAvailabilityDecisions([], { isComplete: false }).map((decision) => ({
     ...decision,
     label: "분석 중",
     text: `"${query}" 검색 결과를 기다리는 중입니다.`
   }));
-  decisionBoard.replaceChildren(buildDecisionBoardShell("도서관별 응답을 기다리는 중입니다.", loadingSteps, { busy: true }));
+  routePanel.replaceChildren(buildRoutePanelShell("도서관별 응답을 기다리는 중입니다.", loadingSteps, { busy: true }));
 }
 
-function renderDecisionBoardError(message) {
-  if (!decisionBoard) {
+function renderRoutePanelError(message) {
+  if (!routePanel) {
     return;
   }
-  decisionBoard.className = "decision-runway";
-  decisionBoard.setAttribute("data-no-left-rails", "true");
-  decisionBoard.setAttribute("aria-labelledby", "decision-runway-title");
-  decisionBoard.setAttribute("aria-busy", "false");
+  routePanel.className = "route-panel";
+  routePanel.setAttribute("aria-labelledby", "route-panel-title");
+  routePanel.setAttribute("aria-busy", "false");
   const errorSteps = buildAvailabilityDecisions([], { isComplete: true }).map((decision) => ({
     ...decision,
     label: decision.step === "1" ? "검색 오류" : "확인 필요",
     text: decision.step === "1" ? message : "검색어를 다시 입력하면 이 경로를 재판정합니다.",
     tone: decision.step === "1" ? "bad" : "neutral"
   }));
-  decisionBoard.replaceChildren(buildDecisionBoardShell("검색을 완료하지 못했습니다. 입력값을 확인하고 다시 시도해 주세요.", errorSteps));
+  routePanel.replaceChildren(buildRoutePanelShell("검색을 완료하지 못했습니다. 입력값을 확인하고 다시 시도해 주세요.", errorSteps));
 }
 
-function buildDecisionBoardShell(summary, decisions, options = {}) {
+function buildRoutePanelShell(summary, decisions, options = {}) {
   const fragment = document.createDocumentFragment();
   const head = document.createElement("header");
-  head.className = "decision-runway__header";
+  head.className = "route-panel__header";
 
   const mark = document.createElement("p");
-  mark.className = "decision-runway__eyebrow";
+  mark.className = "route-panel__eyebrow";
   mark.textContent = options.busy ? "분석 중" : "입수 경로 판정";
   head.appendChild(mark);
 
   const title = document.createElement("h4");
-  title.id = "decision-runway-title";
-  title.className = "decision-runway__title";
+  title.id = "route-panel-title";
+  title.className = "route-panel__title";
   title.textContent = "지금 이 책을 어디서 볼 수 있나";
   head.appendChild(title);
 
   const body = document.createElement("p");
-  body.className = "decision-runway__summary";
+  body.className = "route-panel__summary";
   body.textContent = summary;
   head.appendChild(body);
   fragment.appendChild(head);
 
-  fragment.appendChild(renderAnswerTicket(decisions));
+  fragment.appendChild(renderPrimarySignal(decisions));
 
   const routeMap = document.createElement("ol");
-  routeMap.className = "decision-runway__map route-map";
+  routeMap.className = "route-panel__map path-grid";
   for (const decision of decisions) {
-    routeMap.appendChild(renderDecisionRoute(decision));
+    routeMap.appendChild(renderPathCell(decision));
   }
   fragment.appendChild(routeMap);
   return fragment;
 }
 
-function renderDecisionBoard(providers, options = {}) {
-  if (!decisionBoard) {
+function renderRoutePanel(providers, options = {}) {
+  if (!routePanel) {
     return;
   }
-  decisionBoard.className = "decision-runway";
-  decisionBoard.setAttribute("data-no-left-rails", "true");
-  decisionBoard.setAttribute("aria-labelledby", "decision-runway-title");
-  decisionBoard.setAttribute("aria-busy", options.isComplete ? "false" : "true");
+  routePanel.className = "route-panel";
+  routePanel.setAttribute("aria-labelledby", "route-panel-title");
+  routePanel.setAttribute("aria-busy", options.isComplete ? "false" : "true");
 
   const decisions = buildAvailabilityDecisions(providers, options);
   const completed = options.completedProviders ?? providers.length;
@@ -339,7 +335,7 @@ function renderDecisionBoard(providers, options = {}) {
     ? summarizeDecisionFlow(decisions)
     : `${completed}/${total || "?"}개 검색처 분석 중입니다. 아직 도착하지 않은 검색처는 대기 상태로 표시됩니다.`;
 
-  decisionBoard.replaceChildren(buildDecisionBoardShell(summary, decisions, { busy: !options.isComplete }));
+  routePanel.replaceChildren(buildRoutePanelShell(summary, decisions, { busy: !options.isComplete }));
 }
 
 function summarizeDecisionFlow(decisions) {
@@ -489,44 +485,44 @@ function buildDecision({
   };
 }
 
-function renderAnswerTicket(decisions) {
-  const decision = buildDeskVerdict(decisions);
+function renderPrimarySignal(decisions) {
+  const decision = buildPrimaryVerdict(decisions);
   const docket = document.createElement("article");
-  docket.className = `answer-ticket is-${decision?.tone || "pending"}`;
+  docket.className = `primary-signal is-${decision?.tone || "pending"}`;
 
   const label = document.createElement("p");
-  label.className = "answer-ticket__label";
+  label.className = "primary-signal__label";
   label.textContent = decision?.tone === "warn" ? "예약 우선 안내" : "최우선 안내";
   docket.appendChild(label);
 
   const route = document.createElement("h5");
-  route.className = "answer-ticket__route";
+  route.className = "primary-signal__route";
   route.textContent = decision?.route || "검색 전";
   docket.appendChild(route);
 
   const answer = document.createElement("strong");
-  answer.className = "answer-ticket__answer";
+  answer.className = "primary-signal__answer";
   answer.textContent = decision?.label || "검색 전";
   docket.appendChild(answer);
 
   const sentence = document.createElement("p");
-  sentence.className = "answer-ticket__sentence";
+  sentence.className = "primary-signal__sentence";
   sentence.textContent = decision?.sentence || "검색하면 가장 빠른 경로가 여기에 표시됩니다.";
   docket.appendChild(sentence);
 
   if (decision?.evidenceLines?.length) {
     const evidence = document.createElement("p");
-    evidence.className = "answer-ticket__evidence";
+    evidence.className = "primary-signal__evidence";
     evidence.textContent = decision.evidenceLines.join(" / ");
     docket.appendChild(evidence);
   }
 
   if (decision?.actions?.length) {
     const actions = document.createElement("div");
-    actions.className = "answer-ticket__actions";
+    actions.className = "primary-signal__actions";
     for (const action of decision.actions) {
       const link = document.createElement("a");
-      link.className = "answer-ticket__action";
+      link.className = "primary-signal__action";
       link.href = action.href;
       link.target = "_blank";
       link.rel = "noopener noreferrer";
@@ -536,7 +532,7 @@ function renderAnswerTicket(decisions) {
     docket.appendChild(actions);
   } else if (decision?.href) {
     const link = document.createElement("a");
-    link.className = "answer-ticket__action";
+    link.className = "primary-signal__action";
     link.href = decision.href;
     link.target = "_blank";
     link.rel = "noopener noreferrer";
@@ -547,7 +543,7 @@ function renderAnswerTicket(decisions) {
   return docket;
 }
 
-function buildDeskVerdict(decisions) {
+function buildPrimaryVerdict(decisions) {
   const firstActionable =
     decisions.find((item) => item.tone === "good" || item.tone === "warn") ||
     decisions.find((item) => item.tone === "bad") ||
@@ -601,34 +597,34 @@ function buildVerdictSentence(decision) {
   return decision.text;
 }
 
-function renderDecisionRoute(decision) {
+function renderPathCell(decision) {
   const card = document.createElement("li");
-  card.className = `decision-route decision-route--${decision.tone} is-${decision.tone}`;
+  card.className = `path-cell path-cell--${decision.tone} is-${decision.tone}`;
   card.dataset.step = decision.step;
 
   const step = document.createElement("p");
-  step.className = "decision-route__number";
+  step.className = "path-cell__number";
   step.textContent = `${decision.step}단계`;
   card.appendChild(step);
 
   const title = document.createElement("h5");
-  title.className = "decision-route__title";
+  title.className = "path-cell__title";
   title.textContent = `${decision.step}. ${decision.title}`;
   card.appendChild(title);
 
   const status = document.createElement("strong");
-  status.className = "decision-route__answer";
+  status.className = "path-cell__answer";
   status.textContent = decision.label;
   card.appendChild(status);
 
   const text = document.createElement("p");
-  text.className = "decision-route__copy";
+  text.className = "path-cell__copy";
   text.textContent = decision.text;
   card.appendChild(text);
 
   if (decision.providerName || decision.bookTitle || decision.evidence) {
     const evidence = document.createElement("p");
-    evidence.className = "decision-route__evidence";
+    evidence.className = "path-cell__evidence";
     evidence.textContent = [decision.providerName, decision.bookTitle, decision.evidence]
       .filter(Boolean)
       .join(" · ");
@@ -637,7 +633,7 @@ function renderDecisionRoute(decision) {
 
   if (decision.href) {
     const link = document.createElement("a");
-    link.className = "decision-route__action";
+    link.className = "path-cell__action";
     link.href = decision.href;
     link.target = "_blank";
     link.rel = "noopener noreferrer";
@@ -678,63 +674,63 @@ function renderResults(results, options = {}) {
   sharedCoverURLByKey.clear();
   const enrichedProviders = results.map(deriveProviderStats);
   const sortedProviders = [...enrichedProviders].sort(compareProviders);
-  renderDecisionBoard(sortedProviders, options);
+  renderRoutePanel(sortedProviders, options);
   resultEl.replaceChildren();
 
   if (!sortedProviders.length) {
-    renderResultNotice("표시할 검색 결과가 없습니다.", "result-empty");
+    renderResultNotice("표시할 검색 결과가 없습니다.", "evidence-empty");
     return;
   }
 
   for (const provider of sortedProviders) {
     const items = provider.books || [];
     const card = providerTemplate.content.cloneNode(true);
-    const root = card.querySelector(".ledger-provider");
-    root.classList.add("library-ledger__provider");
+    const root = card.querySelector(".source-block");
+    root.classList.add("evidence-feed__provider");
 
-    root.querySelector(".provider-name").textContent = provider.providerName;
-    root.querySelector(".provider-meta").textContent = `파싱 도서 ${items.length}권 · ${getLibraryModelLabel(provider)}`;
+    root.querySelector(".source-block__name").textContent = provider.providerName;
+    root.querySelector(".source-block__meta").textContent = `파싱 도서 ${items.length}권 · ${getLibraryModelLabel(provider)}`;
     root.querySelector(".search-link").href = provider.searchURL;
     root.querySelector(".login-link").href = provider.loginURL;
 
-    const providerTags = root.querySelector(".ledger-provider__tags");
+    const providerTags = root.querySelector(".source-block__tags");
     const storeNames = Array.from(new Set(items.map((book) => normalizeStoreName(book.storeName))));
     const modelTag = document.createElement("span");
-    modelTag.className = `ledger-provider__tag ${
+    modelTag.className = `source-block__tag ${
       provider.libraryModel === "subscription" ? "is-subscription" : "is-owned"
     }`;
     modelTag.textContent = getLibraryModelLabel(provider);
     providerTags.appendChild(modelTag);
     for (const storeName of storeNames.sort(compareStoreNames)) {
       const storeTag = document.createElement("span");
-      storeTag.className = "ledger-provider__tag is-store";
+      storeTag.className = "source-block__tag is-store";
       storeTag.textContent = storeName;
       providerTags.appendChild(storeTag);
     }
 
-    const highlight = root.querySelector(".ledger-provider__signal");
+    const highlight = root.querySelector(".source-block__signal");
     highlight.classList.add(provider.providerInstantCount > 0 ? "has-instant" : "no-instant");
     highlight.textContent =
       provider.providerInstantCount > 0 ? "바로 대출 후보 있음" : "바로 대출 후보 없음";
 
     const connection = document.createElement("p");
-    connection.classList.add("provider-connection", provider.searchable ? "connected" : "disconnected");
+    connection.classList.add("source-connection", provider.searchable ? "connected" : "disconnected");
     connection.textContent = provider.searchable
       ? `연결 상태: 정상 (${provider.statusCode})`
       : `연결 상태: 실패 (${provider.error || provider.statusCode})`;
 
-    const bookList = root.querySelector(".ledger-provider__books");
+    const bookList = root.querySelector(".source-block__items");
     const sortedItems = [...items].sort(compareBooksForBorrowFirst);
     const groupedItems = groupBooksByStore(sortedItems);
 
     if (!items.length) {
       const empty = document.createElement("p");
-      empty.className = "result-empty";
+      empty.className = "evidence-empty";
       empty.textContent = "이 키워드는 자동 파싱 결과가 없었습니다. 검색 페이지에서 직접 확인해 주세요.";
       bookList.appendChild(empty);
       root.appendChild(connection);
       if (!provider.searchable) {
-        root.classList.add("search-failed");
+        root.classList.add("is-disconnected");
       }
       resultEl.appendChild(card);
       continue;
@@ -742,19 +738,19 @@ function renderResults(results, options = {}) {
 
     for (const group of groupedItems) {
       const groupNode = document.createElement("section");
-      groupNode.className = "ledger-provider__store-group";
+      groupNode.className = "source-block__store-group";
 
       const groupTitle = document.createElement("p");
-      groupTitle.className = "ledger-provider__store-title";
+      groupTitle.className = "source-block__store-title";
       groupTitle.textContent = `${group.storeName} · ${group.books.length}권`;
       groupNode.appendChild(groupTitle);
 
       for (const book of group.books) {
         const node = rowTemplate.content.cloneNode(true);
         const stateView = renderState(book.decision);
-        const itemNode = node.querySelector(".catalog-record");
-        itemNode.classList.add("catalog-record", stateView.containerClass);
-        const coverNode = node.querySelector(".book-cover");
+        const itemNode = node.querySelector(".copy-line");
+        itemNode.classList.add("copy-line", stateView.containerClass);
+        const coverNode = node.querySelector(".copy-line__cover");
         const optimizedCoverURL = optimizeCoverImageURL(book.coverImageURL);
         if (optimizedCoverURL) {
           coverNode.src = optimizedCoverURL;
@@ -763,24 +759,24 @@ function renderResults(results, options = {}) {
           itemNode.classList.add("no-cover");
           coverNode.remove();
         }
-        const detailLink = node.querySelector(".book-detail-link");
+        const detailLink = node.querySelector(".copy-line__title-link");
         detailLink.href = book.detailURL || provider.searchURL;
         detailLink.title = book.detailURL ? "도서 상세 페이지 열기" : "상세 링크가 없어 검색 페이지로 이동";
-        node.querySelector(".book-title").textContent = book.title;
-        const sourceNode = node.querySelector(".book-source");
+        node.querySelector(".copy-line__title").textContent = book.title;
+        const sourceNode = node.querySelector(".copy-line__source");
         sourceNode.textContent = `공급사: ${book.storeName || "미확인"}`;
-        const actionLinksNode = node.querySelector(".book-action-links");
-        const previewLink = node.querySelector(".book-preview-link");
+        const actionLinksNode = node.querySelector(".copy-line__actions");
+        const previewLink = node.querySelector(".copy-line__preview");
         if (book.previewURL) {
           previewLink.href = book.previewURL;
           previewLink.title = "도서 미리보기 열기";
         } else {
           actionLinksNode.remove();
         }
-        const statusNode = node.querySelector(".book-status");
-        statusNode.classList.add("catalog-record__status", stateView.textClass);
+        const statusNode = node.querySelector(".copy-line__status");
+        statusNode.classList.add("copy-line__status", stateView.textClass);
         statusNode.textContent = stateView.text;
-        node.querySelector(".book-counts").textContent = renderCounts(book);
+        node.querySelector(".copy-line__counts").textContent = renderCounts(book);
         groupNode.appendChild(node);
       }
 
@@ -788,7 +784,7 @@ function renderResults(results, options = {}) {
     }
     root.appendChild(connection);
     if (!provider.searchable) {
-      root.classList.add("search-failed");
+      root.classList.add("is-disconnected");
     }
     resultEl.appendChild(card);
   }

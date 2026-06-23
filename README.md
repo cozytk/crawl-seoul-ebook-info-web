@@ -33,13 +33,13 @@ npm run start
 - 예약 오판 방지 규칙 반영
   - `소장 1` + `예약 > 0` + `명시적 대출가능 없음` => 예약 상태 우선
 - 화면 구조
-  - `book-routing-app`: 전체 페이지 셸
-  - `routing-command`: 검색 입력과 현재 검색 요약
-  - `provider-dock`: 검색처별 상태 목록
-  - `decision-runway`: 사용자가 바로 판단하는 여섯 단계 판정판
-  - `answer-ticket`: 지금 가능한 최우선 답
-  - `decision-route`: 각 단계별 판정 행
-  - `library-ledger`: 도서관별 상세 근거
+  - `availability-os`: 전체 페이지 셸
+  - `query-strip`: 검색 입력과 현재 검색 요약
+  - `route-panel`: 사용자가 먼저 보는 판정 신호판
+  - `primary-signal`: 지금 가능한 최우선 답을 크게 표시
+  - `path-grid` / `path-cell`: 여섯 단계 판단 흐름
+  - `evidence-feed` / `source-block` / `copy-line`: 도서관별 상세 근거
+  - `source-index`: 지원 검색처 요약
 - 판단 흐름
   1. 밀리의서재에서 바로 보기
   2. 대출형 전자도서관에서 빌리기

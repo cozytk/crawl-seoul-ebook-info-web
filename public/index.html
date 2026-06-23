@@ -8,26 +8,27 @@
     <link rel="stylesheet" href="/styles.css" />
   </head>
   <body>
-    <main class="book-routing-app" data-no-left-rails="true">
-      <header class="routing-command">
-        <div class="routing-command__brand">
+    <a class="skip-link" href="#route-panel">판정 결과로 건너뛰기</a>
+    <main class="availability-os">
+      <header class="query-strip">
+        <div class="query-strip__brand">
           <img
-            class="routing-command__logo"
+            class="query-strip__logo"
             src="/seoul-shelf-logo.png"
             alt="서울 책장 로고"
             width="36"
             height="36"
           />
           <div>
-            <p class="routing-command__kicker">서울 책 입수 데스크</p>
-            <h1>어디서 읽을 수 있는지 바로 판정</h1>
+            <p class="query-strip__kicker">서울 책 경로판</p>
+            <h1>어디서 읽을 수 있는지 먼저 판정</h1>
           </div>
         </div>
-        <form id="search-form" class="routing-command__search">
+        <form id="search-form" class="query-form">
           <label for="q" class="sr-only">도서 검색어</label>
           <input
             id="q"
-            class="routing-command__field"
+            class="query-form__field"
             name="q"
             type="text"
             placeholder="책 제목을 입력하세요"
@@ -38,35 +39,34 @@
           <button type="submit">검색</button>
         </form>
         <p id="search-help" class="sr-only">책 제목 또는 키워드를 입력하고 검색 버튼을 누르세요.</p>
-        <div class="routing-command__meta">
+        <div class="system-meter">
           <p id="supported-count">지원 검색처 0개</p>
           <p id="search-time" role="status" aria-live="polite"></p>
         </div>
       </header>
 
-      <section class="routing-board">
-        <section class="decision-workspace" aria-label="판정 결과">
-          <div class="decision-workspace__head">
-            <p>판정 결과</p>
-            <strong id="result-meta" aria-live="polite">여섯 단계로 바로 읽기, 대출, 예약 가능성을 먼저 보여줍니다.</strong>
+      <section class="reading-workbench">
+        <section class="signal-stage" aria-label="판정 결과">
+          <div class="signal-stage__head">
+            <p>판정 순서</p>
+            <strong id="result-meta" aria-live="polite">밀리, 전자도서관, 구독형, 은평 실물, 예약 가능성을 순서대로 판정합니다.</strong>
           </div>
-          <div class="results-layout">
+          <div class="result-grid">
             <section
-              id="decision-board"
-              class="decision-runway"
-              data-no-left-rails="true"
-              aria-labelledby="decision-runway-title"
+              id="route-panel"
+              class="route-panel"
+              aria-labelledby="route-panel-title"
               aria-live="polite"
               aria-busy="false"
             ></section>
-            <section id="result" class="library-ledger results-list" aria-live="polite" aria-busy="false"></section>
+            <section id="evidence-feed" class="evidence-feed" aria-live="polite" aria-busy="false"></section>
           </div>
         </section>
 
-        <aside class="provider-dock" aria-label="지원 검색처">
-          <div class="provider-dock__head">
+        <aside class="source-index" aria-label="지원 검색처">
+          <div class="source-index__head">
             <h2>검색처</h2>
-            <p>외부 구독, 전자도서관, 실물 소장을 한 번에 훑습니다.</p>
+            <p>외부 구독, 전자도서관, 실물 소장을 함께 훑습니다.</p>
           </div>
           <div id="supported-libraries" class="supported-list">
             <p class="supported-empty">불러오는 중...</p>
@@ -75,35 +75,35 @@
       </section>
     </main>
 
-    <template id="ledger-provider-template">
-      <article class="ledger-provider">
-        <header class="ledger-provider__head">
+    <template id="source-block-template">
+      <article class="source-block">
+        <header class="source-block__head">
           <div>
-            <h4 class="provider-name"></h4>
-            <p class="provider-meta"></p>
-            <div class="ledger-provider__tags"></div>
+            <h4 class="source-block__name"></h4>
+            <p class="source-block__meta"></p>
+            <div class="source-block__tags"></div>
           </div>
-          <p class="ledger-provider__signal"></p>
+          <p class="source-block__signal"></p>
         </header>
-        <div class="ledger-provider__links">
+        <div class="source-block__links">
           <a class="search-link" target="_blank" rel="noopener noreferrer">검색 페이지</a>
           <a class="login-link" target="_blank" rel="noopener noreferrer">로그인 페이지</a>
         </div>
-        <div class="ledger-provider__books"></div>
+        <div class="source-block__items"></div>
       </article>
     </template>
 
-    <template id="book-row-template">
-      <article class="catalog-record">
-        <img class="book-cover" loading="lazy" decoding="async" alt="" />
-        <a class="book-detail-link" target="_blank" rel="noopener noreferrer">
-          <p class="book-title"></p>
+    <template id="copy-line-template">
+      <article class="copy-line">
+        <img class="copy-line__cover" loading="lazy" decoding="async" alt="" />
+        <a class="copy-line__title-link" target="_blank" rel="noopener noreferrer">
+          <p class="copy-line__title"></p>
         </a>
-        <p class="book-source"></p>
-        <p class="book-status"></p>
-        <p class="book-counts"></p>
-        <div class="book-action-links">
-          <a class="book-preview-link" target="_blank" rel="noopener noreferrer">미리보기</a>
+        <p class="copy-line__source"></p>
+        <p class="copy-line__status"></p>
+        <p class="copy-line__counts"></p>
+        <div class="copy-line__actions">
+          <a class="copy-line__preview" target="_blank" rel="noopener noreferrer">미리보기</a>
         </div>
       </article>
     </template>
