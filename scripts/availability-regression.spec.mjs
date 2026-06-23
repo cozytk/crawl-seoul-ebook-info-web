@@ -41,10 +41,10 @@ for (const viewport of viewports) {
     await expectWholePageShell(page);
     await expect(page.locator(".primary-signal")).toBeVisible();
     await expect(page.locator(".query-form__field")).toBeVisible();
+    await expect(page.locator("#route-panel")).toHaveAttribute("aria-busy", "false", { timeout: 30000 });
     await expect(
       page.locator(".path-cell").filter({ hasText: "1. 밀리의서재에서 바로 보기" }).locator(".path-cell__answer")
     ).toHaveText("볼 수 없음");
-    await expect(page.locator("#route-panel")).toHaveAttribute("aria-busy", "false", { timeout: 30000 });
     await expect(
       page.locator(".path-cell").filter({ hasText: "3. 구독형 도서관에서 열람하기" }).locator(".path-cell__answer")
     ).toHaveText("바로 열람 가능");
