@@ -31,6 +31,37 @@ async function expectWholePageShell(page) {
   ).toHaveCount(0);
 }
 
+async function expectRouteMarkerContract(page) {
+  const routeStates = await page.locator(".path-cell").evaluateAll((cells) =>
+    cells.map((cell) => {
+      const answer = cell.querySelector(".path-cell__answer");
+      const marker = answer ? getComputedStyle(answer, "::before") : null;
+      return {
+        className: cell.className,
+        marker: marker?.content.replaceAll('"', "") || "",
+        markerColor: marker?.color || "",
+        background: getComputedStyle(cell).backgroundColor
+      };
+    })
+  );
+
+  expect(routeStates.every((state) => state.background === "rgb(255, 255, 255)")).toBe(true);
+  for (const state of routeStates) {
+    if (state.className.includes("is-good")) {
+      expect(state.marker).toBe("✓");
+      expect(state.markerColor).toBe("rgb(22, 101, 52)");
+    }
+    if (state.className.includes("is-warn")) {
+      expect(state.marker).toBe("✓");
+      expect(state.markerColor).toBe("rgb(2, 6, 23)");
+    }
+    if (state.className.includes("is-bad") || state.className.includes("is-neutral")) {
+      expect(state.marker).toBe("×");
+      expect(state.markerColor).toBe("rgb(180, 35, 24)");
+    }
+  }
+}
+
 for (const viewport of viewports) {
   test(`shows Seoul subscription as readable and Millie inactive title as not viewable on ${viewport.name}`, async ({ page }) => {
     await page.setViewportSize({ width: viewport.width, height: viewport.height });
@@ -42,6 +73,7 @@ for (const viewport of viewports) {
     await expect(page.locator(".primary-signal")).toBeVisible();
     await expect(page.locator(".query-form__field")).toBeVisible();
     await expect(page.locator("#route-panel")).toHaveAttribute("aria-busy", "false", { timeout: 30000 });
+    await expectRouteMarkerContract(page);
     await expect(
       page.locator(".path-cell").filter({ hasText: "1. 밀리의서재에서 바로 보기" }).locator(".path-cell__answer")
     ).toHaveText("볼 수 없음");
@@ -68,6 +100,7 @@ for (const viewport of viewports) {
     await expectWholePageShell(page);
     await expect(page.locator(".primary-signal")).toBeVisible();
     await expect(page.locator("#route-panel")).toHaveAttribute("aria-busy", "false", { timeout: 30000 });
+    await expectRouteMarkerContract(page);
     await expect(page.locator(".primary-signal__answer")).toContainText("예약 가능");
     await expect(
       page.locator(".path-cell").filter({ hasText: "4. 은평구 공공도서관 직접 대출" }).locator(".path-cell__answer")
@@ -97,6 +130,7 @@ for (const viewport of viewports) {
 
     await expectWholePageShell(page);
     await expect(page.locator("#route-panel")).toHaveAttribute("aria-busy", "false", { timeout: 30000 });
+    await expectRouteMarkerContract(page);
     await expect(
       page.locator(".path-cell").filter({ hasText: "6. 어느 도서관이든 예약하기" }).locator(".path-cell__answer")
     ).toHaveText("예약 후보 있음");

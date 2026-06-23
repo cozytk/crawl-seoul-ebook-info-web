@@ -44,12 +44,20 @@ The route verdict is always evaluated in this order:
 
 Color is never the only status indicator. Every state has explicit Korean text.
 
+Route steps must not use tinted status backgrounds. They use a neutral surface plus an explicit marker:
+
+- Read/borrow available: green check mark.
+- Reservation available: black check mark.
+- Unavailable or no candidate: red X mark.
+- Pending: muted ellipsis mark.
+
 ## Typography
 
-- Font stack: `"Noto Sans KR", "Apple SD Gothic Neo", "Malgun Gothic", system-ui, sans-serif`.
+- Font stack: `"Pretendard Variable", "Pretendard", "SUIT", "Noto Sans KR", "Apple SD Gothic Neo", "Malgun Gothic", system-ui, sans-serif`.
 - No negative letter spacing.
 - No viewport-scaling body text.
 - Primary verdict text is large, but uses normal Korean line breaking and must not wrap into one-character vertical columns.
+- Use medium and semibold weights for most interface text. Reserve heavier weights for the page title and primary verdict only.
 
 ## Layout Rules
 
