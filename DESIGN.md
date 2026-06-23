@@ -2,9 +2,9 @@
 
 ## 1. Atmosphere & Identity
 
-Seoul eBook Finder is a quiet decision console for readers who want the fastest path to a book. It should feel calm, trustworthy, and operational: first answer whether the book can be read now, then show the supporting evidence. The signature is the availability flow, a six-step catalog slip that turns scattered provider data into clear next actions.
+Seoul eBook Finder is a quiet decision console for readers who want the fastest path to a book. It should feel calm, trustworthy, and operational: first answer whether the book can be read now, then show the supporting evidence. The signature is the book routing page: a search command surface, a provider dock, one dominant decision runway, and a supporting library ledger.
 
-The linked Anthropic frontend-design guidance is interpreted here as a product rule: the page should be subject-specific, not templated. Structure is information, so numbering is justified because the reader evaluates availability in this exact sequence. The aesthetic risk is a restrained library circulation ledger / hold-slip treatment: paper-white surfaces, ink-stamp labels, and a visible status spine on each decision component.
+The linked Anthropic frontend-design guidance is interpreted here as a product rule: the page should be subject-specific, not templated. Structure is information, so numbering is justified because the reader evaluates availability in this exact sequence. The aesthetic risk is a restrained catalog drawer / circulation desk / hold-slip treatment: paper-white surfaces, ink-stamp labels, and docket-style hierarchy. Do not use a colored left rail or generic dashboard cards; availability must be communicated by answer text, hierarchy, and supporting evidence, not color alone.
 
 ## 2. Color
 
@@ -16,8 +16,8 @@ The linked Anthropic frontend-design guidance is interpreted here as a product r
 | Surface/app | `--bg` | `#f5f8fd` | n/a | Page background |
 | Surface/soft | `--surface-soft` | `#f7faff` | n/a | Inputs, low-emphasis sections |
 | Surface/info | `--blue-soft` | `#eef5ff` | n/a | Loan and information emphasis |
-| Surface/flow | n/a | `#fbfdff` | n/a | Six-step judgment board |
-| Surface/ink stamp | n/a | `#10233d` | n/a | Decision board mark |
+| Surface/decision | `--paper` | `#fffaf0` | n/a | Decision runway and ledger panels |
+| Surface/ink stamp | n/a | `#10233d` | n/a | Docket action and stamp labels |
 | Text/primary | `--ink` | `#12151b` | n/a | Primary text |
 | Text/secondary | `--ink-sub` | `#56667a` | n/a | Metadata and explanations |
 | Text/muted | `--muted` | `#7f8ea6` | n/a | Secondary labels |
@@ -44,8 +44,8 @@ The linked Anthropic frontend-design guidance is interpreted here as a product r
 
 | Level | Size | Weight | Line Height | Tracking | Usage |
 |-------|------|--------|-------------|----------|-------|
-| H1 | `clamp(1.5rem, 2.75vw, 2.15rem)` | 800 | 1.18 | 0 | Hero headline |
-| H2 | `1.3rem` | 800 | 1.25 | 0 | Decision board title |
+| H1 | `clamp(1.5rem, 2.75vw, 2.15rem)` | 800 | 1.18 | 0 | Command headline |
+| H2 | `1.3rem` | 800 | 1.25 | 0 | Decision runway title |
 | H3 | `1rem` | 800 | 1.3 | 0 | Provider headings |
 | Body | `0.96rem` | 400 | 1.5 | 0 | Main helper text |
 | Body/sm | `0.84rem` | 500 | 1.45 | 0 | Metadata and details |
@@ -80,28 +80,39 @@ All spacing derives from a 4px base.
 
 ### Grid
 
-- Max content width: 1280px.
-- Results layout: main content with a 320px side rail on desktop, one column below 1060px.
-- Availability flow: 12-column catalog-slip grid on desktop, single-column sequence on mobile.
+- Max content width: 1440px.
+- Results layout: one primary work surface plus one provider dock; no right-side guide rail in the visible result area.
+- Book routing app: `main.book-routing-app[data-no-left-rails="true"]` contains `header.routing-command`, `aside.provider-dock`, and `section.decision-workspace`.
+- Decision runway: one dominant answer ticket plus a single ledger route list on desktop/tablet, collapsing each route row into a stacked card on mobile.
 
 ### Rules
 
-- The six-step decision board appears before detailed provider cards.
-- Detailed cards support the board; they should not carry the only important status.
-- On mobile, decision cards remain full-width and readable without horizontal scroll.
+- The decision workspace appears before the provider dock in the DOM, so mobile readers see the answer before setup details.
+- The library ledger supports the runway; detailed records should not carry the only important status.
+- On mobile, route steps remain full-width and readable without horizontal scroll.
 
 ## 5. Components
 
-### Availability Flow
+### Book Routing App
 
-- **Structure**: `section.availability-flow`, `header.availability-flow__header`, `p.availability-flow__summary`, `ol.availability-flow__list`, and six `li.flow-decision-card` components.
-- **Decision anatomy**: `.flow-decision-card__step`, `.flow-decision-card__title`, `.flow-decision-card__answer`, `.flow-decision-card__copy`, `.flow-decision-card__supporting-results`, `.flow-decision-card__action`.
+- **Structure**: `main.book-routing-app[data-no-left-rails="true"]`, `header.routing-command`, `aside.provider-dock`, `section.decision-workspace`, `section.decision-runway`, and `section.library-ledger`.
+- **Command anatomy**: `.routing-command__brand`, `.routing-command__search`, `.routing-command__field`, and `.routing-command__meta`.
+- **Provider anatomy**: `.provider-dock`, `.supported-list`, `.library-chip`, `.ledger-provider`, `.ledger-provider__tags`, and `.ledger-provider__signal`.
+- **Workspace anatomy**: `.decision-workspace` owns the route verdict and detailed records.
+- **Accessibility**: search is keyboard-first; dynamic regions use polite live updates and visible focus states.
+- **Signature**: the page reads like a circulation command table, not a marketing splash and not a stack of tiny cards.
+
+### Decision Runway
+
+- **Structure**: `section.decision-runway`, `header.decision-runway__header`, `p.decision-runway__eyebrow`, `h4#decision-runway-title.decision-runway__title`, `p.decision-runway__summary`, one `article.answer-ticket`, and six `li.decision-route` route decisions.
+- **Answer anatomy**: `.answer-ticket__label`, `.answer-ticket__route`, `.answer-ticket__answer`, `.answer-ticket__sentence`, `.answer-ticket__evidence`, `.answer-ticket__action`.
+- **Route anatomy**: `.decision-route__number`, `.decision-route__title`, `.decision-route__answer`, `.decision-route__copy`, `.decision-route__evidence`, `.decision-route__action`.
 - **Variants**: `good`, `warn`, `bad`, `pending`, `neutral`.
-- **Spacing**: `--space-5` board padding, `--space-4` component padding, `--space-3` inter-component gaps.
+- **Spacing**: `--space-5` runway padding, `--space-4` docket padding, `--space-3` inter-route gaps.
 - **States**: pending while provider search is incomplete; final when all providers complete.
-- **Accessibility**: `aria-live="polite"` on the board container; text labels do not rely on color alone.
+- **Accessibility**: `aria-live="polite"` on the runway container; text labels do not rely on color alone.
 - **Motion**: no layout animation; links use focus rings and border emphasis only.
-- **Signature**: each step is a large catalog slip with a left status spine. Numbering is allowed here because the user must make the decisions in this order.
+- **Signature**: the top answer ticket owns the answer; the six decision routes are a compact evidence map. Numbering is allowed here because the user must make the decisions in this order.
 
 ### Provider Card
 
@@ -112,6 +123,12 @@ All spacing derives from a 4px base.
 - **Accessibility**: provider and book links remain keyboard-focusable.
 - **Motion**: hover color shifts only.
 
+### Library Ledger
+
+- **Structure**: `section.library-ledger`, provider-level `.library-ledger__provider`, repeated `.catalog-record`, and `.catalog-record__status`.
+- **Role**: proves why the decision runway reached its answer. It is supporting evidence after the verdict, not a competing dashboard.
+- **Bans**: no `border-left-width`, no `border-left-color`, no colored left rail, no status rail, and no color-alone status encoding.
+
 ### Book Result Card
 
 - **Structure**: cover, title link, large action status, source, evidence text, optional preview.
@@ -120,7 +137,7 @@ All spacing derives from a 4px base.
 - **States**: focus-visible ring on title and preview links.
 - **Accessibility**: cover alt text includes the title.
 - **Motion**: no motion beyond link hover.
-- **Role**: detailed cards are supporting evidence. They should never be the only place where a user can discover the primary action.
+- **Role**: detailed cards are supporting evidence. They should never be the only place where a user can discover the primary action, and they must not use colored left rails as the main status cue.
 
 ## 6. Motion & Interaction
 
@@ -146,10 +163,10 @@ Mixed: soft borders plus very light tinted shadows for page-level panels; nested
 | Level | Value | Usage |
 |-------|-------|-------|
 | Subtle | `0 10px 24px rgba(24, 45, 78, 0.04)` | Provider and guide cards |
-| Default | `0 14px 34px rgba(23, 47, 84, 0.06)` | Topbar and hero |
-| Decision | `0 16px 32px rgba(31, 63, 105, 0.07)` | Decision board cards |
+| Default | `0 14px 34px rgba(23, 47, 84, 0.06)` | Command and dock panels |
+| Decision | `0 16px 32px rgba(31, 63, 105, 0.07)` | Decision runway panels |
 
 ### Rules
 
 - Book cards use background tone to show state, not heavy borders.
-- Avoid nested card stacks where possible; the decision board is the primary framed tool.
+- Avoid nested card stacks where possible; the decision runway is the primary framed tool.

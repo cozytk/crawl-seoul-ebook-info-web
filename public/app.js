@@ -1,13 +1,11 @@
 const form = document.querySelector("#search-form");
 const queryInput = document.querySelector("#q");
-const flowEl = document.querySelector("#flow");
 const decisionBoard = document.querySelector("#decision-board");
 const resultEl = document.querySelector("#result");
 const rowTemplate = document.querySelector("#book-row-template");
-const providerTemplate = document.querySelector("#provider-card-template");
+const providerTemplate = document.querySelector("#ledger-provider-template");
 const resultMeta = document.querySelector("#result-meta");
 const searchTime = document.querySelector("#search-time");
-const fallbackLinks = document.querySelector("#fallback-links");
 const supportedCountEl = document.querySelector("#supported-count");
 const supportedLibrariesEl = document.querySelector("#supported-libraries");
 const searchButton = form.querySelector('button[type="submit"]');
@@ -19,9 +17,7 @@ let activeSearchRequestId = 0;
 init();
 
 async function init() {
-  renderFlowPlaceholder();
   renderDecisionBoardPlaceholder();
-  renderFallbackLinks();
   await loadSupportedLibraries();
 }
 
@@ -40,14 +36,12 @@ form.addEventListener("submit", async (event) => {
   const requestId = ++activeSearchRequestId;
   activeSearchController = controller;
 
-  flowEl.replaceChildren();
   renderDecisionBoardLoading(query);
   renderResultNotice("검색 중입니다. 도서관 페이지를 순차 분석하고 있어요.", "loading-state");
   resultEl.setAttribute("aria-busy", "true");
   resultMeta.textContent = `"${query}" 검색 중...`;
   searchTime.textContent = "";
   setSearchPending(true);
-  renderFallbackLinks();
 
   try {
     if (window.ReadableStream) {
@@ -66,7 +60,6 @@ form.addEventListener("submit", async (event) => {
         throw new Error(data.error || "검색 실패");
       }
 
-      renderFlow(data.flow);
       renderResults(data.libraryResults, {
         isComplete: true,
         completedProviders: data.libraryResults.length,
@@ -74,7 +67,6 @@ form.addEventListener("submit", async (event) => {
       });
       resultMeta.textContent = `"${data.query}" 기준 ${data.libraryResults.length}개 검색처 분석 완료`;
       searchTime.textContent = formatSearchedAt(data.searchedAt);
-      renderFallbackLinks(data.flow);
     }
   } catch (error) {
     if (requestId !== activeSearchRequestId) {
@@ -86,7 +78,6 @@ form.addEventListener("submit", async (event) => {
     }
 
     const message = error instanceof Error ? error.message : "알 수 없는 오류";
-    renderFlowPlaceholder();
     renderDecisionBoardError(message);
     renderResultNotice(`오류: ${message}`, "result-error");
     resultMeta.textContent = "오류가 발생했습니다.";
@@ -113,7 +104,6 @@ async function streamSearchResults(query, signal, requestId) {
   let totalProviders = 0;
   let completedProviders = 0;
   let searchedAt = "";
-  let flow = null;
   const streamedResults = [];
 
   while (true) {
@@ -150,23 +140,12 @@ async function streamSearchResults(query, signal, requestId) {
         resultMeta.textContent = `"${query}" 기준 ${completedProviders}/${totalProviders || "?"}개 검색처 분석 중`;
       }
 
-      if (event.type === "flow") {
-        flow = event.data;
-        renderFlow(flow);
-        renderFallbackLinks(flow);
-      }
-
       if (event.type === "done") {
         renderResults(streamedResults, {
           isComplete: true,
           completedProviders: streamedResults.length,
           totalProviders: totalProviders || streamedResults.length
         });
-        if (!flow) {
-          flow = buildFallbackFlow(query, streamedResults);
-          renderFlow(flow);
-          renderFallbackLinks(flow);
-        }
         resultMeta.textContent = `"${query}" 기준 ${streamedResults.length}개 검색처 분석 완료`;
         searchTime.textContent = formatSearchedAt(event.data.searchedAt || searchedAt);
       }
@@ -187,59 +166,6 @@ function parseSseChunk(chunk) {
   return {
     type,
     data: JSON.parse(dataText)
-  };
-}
-
-function buildFallbackFlow(query, results) {
-  const millie = results.find((result) => result.providerId === "millie");
-  const hasMillieExactEbook = Boolean(
-    millie?.books?.some(
-      (book) =>
-        book.contentKind === "ebook" &&
-        book.isExactTitleMatch &&
-        book.decision?.state === "borrow_now"
-    )
-  );
-  const hasMillieExactAny = Boolean(
-    millie?.books?.some((book) => book.isExactTitleMatch && book.decision?.state === "borrow_now")
-  );
-  const hasSeoulBorrowable = results.some(
-    (result) =>
-      !result.isExternalProvider &&
-      !result.isPhysicalProvider &&
-      result.books?.some((book) => book.decision?.state === "borrow_now" && isStrongTitleCandidate(book))
-  );
-  const hasPhysicalBorrowable = results.some(
-    (result) => result.isPhysicalProvider && result.books?.some((book) => book.decision?.state === "borrow_now")
-  );
-
-  return {
-    phase1: {
-      label: "밀리의서재 확인",
-      completed: true,
-      hasBorrowable: hasMillieExactAny,
-      hasPrimary: hasMillieExactEbook,
-      searchURL: `https://www.millie.co.kr/v4/library/search/${encodeURIComponent(query)}`
-    },
-    phase2: {
-      label: "서울 전역 전자책 검색",
-      completed: true,
-      enabled: !hasMillieExactEbook,
-      hasBorrowable: hasSeoulBorrowable
-    },
-    phase3: {
-      label: "은평구공공도서관 실물 대출 확인",
-      enabled: !hasMillieExactEbook && !hasSeoulBorrowable,
-      hasBorrowable: hasPhysicalBorrowable,
-      searchURL: `https://lib.eplib.or.kr/unified/search.asp?search_word=${encodeURIComponent(query)}`,
-      externalLinks: [
-        {
-          id: "eunpyeong-public",
-          label: "은평구공공도서관 검색",
-          searchURL: `https://lib.eplib.or.kr/unified/search.asp?search_word=${encodeURIComponent(query)}`
-        }
-      ]
-    }
   };
 }
 
@@ -298,107 +224,6 @@ function renderSupportedLibrariesEmpty(message) {
   supportedLibrariesEl.appendChild(empty);
 }
 
-function renderFlow(flow) {
-  if (!flow) {
-    renderFlowPlaceholder();
-    return;
-  }
-
-  const flowItems = [
-    {
-      title: "1단계 · 밀리의서재 바로 보기",
-      text: flow.phase1.hasPrimary ? "바로 볼 수 있으면 여기서 멈춥니다." : "볼 수 없으면 다음 대출형 도서관을 봅니다.",
-      active: flow.phase1.hasBorrowable
-    },
-    {
-      title: "2단계 · 대출형 전자도서관",
-      text: "소장형 전자책을 바로 대출할 수 있는지 확인합니다.",
-      active: flow.phase2.enabled
-    },
-    {
-      title: "3단계 · 구독형 도서관",
-      text: "서울도서관 등 구독형 전자책으로 바로 열람 가능한지 확인합니다.",
-      active: flow.phase2.enabled
-    },
-    {
-      title: "4단계 · 은평 실물 직접 대출",
-      text: "전자책이 부족하면 은평구 공공도서관 실물 대출을 확인합니다.",
-      active: flow.phase3.enabled
-    },
-    {
-      title: "5단계 · 은평 실물 직접 예약",
-      text: "직접 대출이 안 되면 예약 가능한 실물 소장본을 봅니다.",
-      active: flow.phase3.enabled
-    },
-    {
-      title: "6단계 · 전체 예약 후보",
-      text: "마지막으로 어느 도서관에서라도 예약 가능한지 확인합니다.",
-      active: true
-    }
-  ];
-
-  flowEl.replaceChildren(buildFlowList(flowItems));
-}
-
-function renderFlowPlaceholder() {
-  const flowItems = [
-    {
-      title: "1단계 · 밀리의서재 바로 보기",
-      text: "바로 볼 수 있는지 먼저 확인합니다.",
-      active: false
-    },
-    {
-      title: "2단계 · 대출형 전자도서관",
-      text: "바로 빌릴 수 있는 소장형 전자책을 확인합니다.",
-      active: false
-    },
-    {
-      title: "3단계 · 구독형 도서관",
-      text: "구독형 전자책으로 열람 가능한지 확인합니다.",
-      active: false
-    },
-    {
-      title: "4단계 · 은평 실물 직접 대출",
-      text: "직접 빌릴 수 있는 은평 실물도서를 확인합니다.",
-      active: false
-    },
-    {
-      title: "5단계 · 은평 실물 직접 예약",
-      text: "예약 가능한 은평 실물도서를 확인합니다.",
-      active: false
-    },
-    {
-      title: "6단계 · 전체 예약 후보",
-      text: "어느 도서관에서라도 예약 가능한지 확인합니다.",
-      active: false
-    }
-  ];
-
-  flowEl.replaceChildren(buildFlowList(flowItems));
-}
-
-function buildFlowList(flowItems) {
-  const list = document.createElement("ol");
-  list.className = "flow-ordered-list";
-
-  for (const item of flowItems) {
-    const listItem = document.createElement("li");
-    listItem.className = `flow-item ${item.active ? "is-active" : "is-idle"}`;
-
-    const title = document.createElement("strong");
-    title.textContent = item.title;
-    listItem.appendChild(title);
-
-    const body = document.createElement("span");
-    body.textContent = item.text;
-    listItem.appendChild(body);
-
-    list.appendChild(listItem);
-  }
-
-  return list;
-}
-
 function setSearchPending(isPending) {
   if (!searchButton) {
     return;
@@ -419,91 +244,82 @@ function renderDecisionBoardPlaceholder() {
   if (!decisionBoard) {
     return;
   }
-  decisionBoard.className = "availability-flow";
+  decisionBoard.className = "decision-runway";
+  decisionBoard.setAttribute("data-no-left-rails", "true");
+  decisionBoard.setAttribute("aria-labelledby", "decision-runway-title");
   decisionBoard.setAttribute("aria-busy", "false");
-  const steps = [
-    ["1", "밀리의서재", "바로 볼 수 있는지 확인"],
-    ["2", "대출형 전자도서관", "바로 빌릴 수 있는지 확인"],
-    ["3", "구독형 도서관", "바로 열람 가능한지 확인"],
-    ["4", "은평 실물 대출", "지금 직접 빌릴 수 있는지 확인"],
-    ["5", "은평 실물 예약", "예약 가능한 소장본이 있는지 확인"],
-    ["6", "전체 예약", "어느 도서관이든 예약 가능한지 확인"]
-  ];
-  decisionBoard.replaceChildren(buildDecisionBoardShell("검색하면 판단 흐름이 여기에 표시됩니다.", steps));
+  const steps = buildAvailabilityDecisions([], { isComplete: false }).map((decision) => ({
+    ...decision,
+    label: "검색 전",
+    text: "검색하면 이 경로의 가능 여부를 판정합니다.",
+    tone: "pending"
+  }));
+  decisionBoard.replaceChildren(buildDecisionBoardShell("검색하면 읽기, 대출, 예약 경로를 한 번에 정리합니다.", steps));
 }
 
 function renderDecisionBoardLoading(query) {
   if (!decisionBoard) {
     return;
   }
-  decisionBoard.className = "availability-flow";
+  decisionBoard.className = "decision-runway";
+  decisionBoard.setAttribute("data-no-left-rails", "true");
+  decisionBoard.setAttribute("aria-labelledby", "decision-runway-title");
   decisionBoard.setAttribute("aria-busy", "true");
-  const loadingSteps = buildAvailabilityDecisions([], { isComplete: false }).map((step) => [
-    step.step,
-    step.title,
-    `"${query}" 분석 중`
-  ]);
-  decisionBoard.replaceChildren(buildDecisionBoardShell("도서관별 응답을 기다리는 중입니다.", loadingSteps));
+  const loadingSteps = buildAvailabilityDecisions([], { isComplete: false }).map((decision) => ({
+    ...decision,
+    label: "분석 중",
+    text: `"${query}" 검색 결과를 기다리는 중입니다.`
+  }));
+  decisionBoard.replaceChildren(buildDecisionBoardShell("도서관별 응답을 기다리는 중입니다.", loadingSteps, { busy: true }));
 }
 
 function renderDecisionBoardError(message) {
   if (!decisionBoard) {
     return;
   }
-  decisionBoard.className = "availability-flow";
+  decisionBoard.className = "decision-runway";
+  decisionBoard.setAttribute("data-no-left-rails", "true");
+  decisionBoard.setAttribute("aria-labelledby", "decision-runway-title");
   decisionBoard.setAttribute("aria-busy", "false");
-  const errorSteps = buildAvailabilityDecisions([], { isComplete: true }).map((step) => [
-    step.step,
-    step.title,
-    step.step === "1" ? `검색 오류: ${message}` : "검색 후 다시 확인"
-  ]);
+  const errorSteps = buildAvailabilityDecisions([], { isComplete: true }).map((decision) => ({
+    ...decision,
+    label: decision.step === "1" ? "검색 오류" : "확인 필요",
+    text: decision.step === "1" ? message : "검색어를 다시 입력하면 이 경로를 재판정합니다.",
+    tone: decision.step === "1" ? "bad" : "neutral"
+  }));
   decisionBoard.replaceChildren(buildDecisionBoardShell("검색을 완료하지 못했습니다. 입력값을 확인하고 다시 시도해 주세요.", errorSteps));
 }
 
-function buildDecisionBoardShell(summary, steps) {
+function buildDecisionBoardShell(summary, decisions, options = {}) {
   const fragment = document.createDocumentFragment();
   const head = document.createElement("header");
-  head.className = "availability-flow__head availability-flow__header";
+  head.className = "decision-runway__header";
 
   const mark = document.createElement("p");
-  mark.className = "availability-flow__mark";
-  mark.textContent = "판정표";
+  mark.className = "decision-runway__eyebrow";
+  mark.textContent = options.busy ? "분석 중" : "입수 경로 판정";
   head.appendChild(mark);
 
   const title = document.createElement("h4");
-  title.id = "availability-flow-title";
-  title.textContent = "읽을 수 있는 순서대로 확인";
+  title.id = "decision-runway-title";
+  title.className = "decision-runway__title";
+  title.textContent = "지금 이 책을 어디서 볼 수 있나";
   head.appendChild(title);
 
   const body = document.createElement("p");
-  body.className = "availability-flow__summary";
+  body.className = "decision-runway__summary";
   body.textContent = summary;
   head.appendChild(body);
   fragment.appendChild(head);
 
-  const grid = document.createElement("ol");
-  grid.className = "availability-flow__rail availability-flow__list";
-  for (const step of steps) {
-    const card = document.createElement("li");
-    card.className = "flow-decision-card flow-decision-card--pending is-pending";
+  fragment.appendChild(renderAnswerTicket(decisions));
 
-    const stepLabel = document.createElement("p");
-    stepLabel.className = "flow-decision-card__step";
-    stepLabel.textContent = `${step[0]}단계`;
-    card.appendChild(stepLabel);
-
-    const cardTitle = document.createElement("h5");
-    cardTitle.className = "flow-decision-card__question flow-decision-card__title";
-    cardTitle.textContent = `${step[0]}. ${step[1]}`;
-    card.appendChild(cardTitle);
-
-    const status = document.createElement("strong");
-    status.className = "flow-decision-card__answer";
-    status.textContent = step[2];
-    card.appendChild(status);
-    grid.appendChild(card);
+  const routeMap = document.createElement("ol");
+  routeMap.className = "decision-runway__map route-map";
+  for (const decision of decisions) {
+    routeMap.appendChild(renderDecisionRoute(decision));
   }
-  fragment.appendChild(grid);
+  fragment.appendChild(routeMap);
   return fragment;
 }
 
@@ -511,7 +327,9 @@ function renderDecisionBoard(providers, options = {}) {
   if (!decisionBoard) {
     return;
   }
-  decisionBoard.className = "availability-flow";
+  decisionBoard.className = "decision-runway";
+  decisionBoard.setAttribute("data-no-left-rails", "true");
+  decisionBoard.setAttribute("aria-labelledby", "decision-runway-title");
   decisionBoard.setAttribute("aria-busy", options.isComplete ? "false" : "true");
 
   const decisions = buildAvailabilityDecisions(providers, options);
@@ -521,32 +339,7 @@ function renderDecisionBoard(providers, options = {}) {
     ? summarizeDecisionFlow(decisions)
     : `${completed}/${total || "?"}개 검색처 분석 중입니다. 아직 도착하지 않은 검색처는 대기 상태로 표시됩니다.`;
 
-  decisionBoard.replaceChildren();
-  const head = document.createElement("header");
-  head.className = "availability-flow__head availability-flow__header";
-
-  const mark = document.createElement("p");
-  mark.className = "availability-flow__mark";
-  mark.textContent = "판정표";
-  head.appendChild(mark);
-
-  const title = document.createElement("h4");
-  title.id = "availability-flow-title";
-  title.textContent = "읽을 수 있는 순서대로 확인";
-  head.appendChild(title);
-
-  const body = document.createElement("p");
-  body.className = "availability-flow__summary";
-  body.textContent = summary;
-  head.appendChild(body);
-  decisionBoard.appendChild(head);
-
-  const grid = document.createElement("ol");
-  grid.className = "availability-flow__rail availability-flow__list";
-  for (const decision of decisions) {
-    grid.appendChild(renderDecisionCard(decision));
-  }
-  decisionBoard.appendChild(grid);
+  decisionBoard.replaceChildren(buildDecisionBoardShell(summary, decisions, { busy: !options.isComplete }));
 }
 
 function summarizeDecisionFlow(decisions) {
@@ -696,33 +489,146 @@ function buildDecision({
   };
 }
 
-function renderDecisionCard(decision) {
+function renderAnswerTicket(decisions) {
+  const decision = buildDeskVerdict(decisions);
+  const docket = document.createElement("article");
+  docket.className = `answer-ticket is-${decision?.tone || "pending"}`;
+
+  const label = document.createElement("p");
+  label.className = "answer-ticket__label";
+  label.textContent = decision?.tone === "warn" ? "예약 우선 안내" : "최우선 안내";
+  docket.appendChild(label);
+
+  const route = document.createElement("h5");
+  route.className = "answer-ticket__route";
+  route.textContent = decision?.route || "검색 전";
+  docket.appendChild(route);
+
+  const answer = document.createElement("strong");
+  answer.className = "answer-ticket__answer";
+  answer.textContent = decision?.label || "검색 전";
+  docket.appendChild(answer);
+
+  const sentence = document.createElement("p");
+  sentence.className = "answer-ticket__sentence";
+  sentence.textContent = decision?.sentence || "검색하면 가장 빠른 경로가 여기에 표시됩니다.";
+  docket.appendChild(sentence);
+
+  if (decision?.evidenceLines?.length) {
+    const evidence = document.createElement("p");
+    evidence.className = "answer-ticket__evidence";
+    evidence.textContent = decision.evidenceLines.join(" / ");
+    docket.appendChild(evidence);
+  }
+
+  if (decision?.actions?.length) {
+    const actions = document.createElement("div");
+    actions.className = "answer-ticket__actions";
+    for (const action of decision.actions) {
+      const link = document.createElement("a");
+      link.className = "answer-ticket__action";
+      link.href = action.href;
+      link.target = "_blank";
+      link.rel = "noopener noreferrer";
+      link.textContent = action.label;
+      actions.appendChild(link);
+    }
+    docket.appendChild(actions);
+  } else if (decision?.href) {
+    const link = document.createElement("a");
+    link.className = "answer-ticket__action";
+    link.href = decision.href;
+    link.target = "_blank";
+    link.rel = "noopener noreferrer";
+    link.textContent = decision.actionLabel || "상세 확인";
+    docket.appendChild(link);
+  }
+
+  return docket;
+}
+
+function buildDeskVerdict(decisions) {
+  const firstActionable =
+    decisions.find((item) => item.tone === "good" || item.tone === "warn") ||
+    decisions.find((item) => item.tone === "bad") ||
+    decisions[0];
+  const directReserve = decisions.find(
+    (item) => item.step === "5" && item.tone === "warn" && item.label.includes("예약")
+  );
+
+  if (firstActionable && directReserve && directReserve !== firstActionable) {
+    return {
+      tone: "warn",
+      label: `${firstActionable.label} · ${directReserve.label}`,
+      route: `${firstActionable.step}단계 + ${directReserve.step}단계 · 읽기와 예약을 함께 확보`,
+      sentence: `${buildVerdictSentence(firstActionable)}. 은평구 공공도서관 직접 예약도 가능합니다.`,
+      evidenceLines: [formatVerdictEvidence(firstActionable), formatVerdictEvidence(directReserve)].filter(Boolean),
+      actions: [firstActionable, directReserve]
+        .filter((item) => item.href)
+        .map((item) => ({
+          href: item.href,
+          label: item === directReserve ? "은평 예약 확인" : item.actionLabel || "상세 확인"
+        }))
+    };
+  }
+
+  if (!firstActionable) {
+    return null;
+  }
+
+  return {
+    ...firstActionable,
+    route: `${firstActionable.step}단계 · ${firstActionable.title}`,
+    sentence: buildVerdictSentence(firstActionable),
+    evidenceLines: [formatVerdictEvidence(firstActionable)].filter(Boolean)
+  };
+}
+
+function formatVerdictEvidence(decision) {
+  return [decision.providerName, decision.bookTitle, decision.evidence].filter(Boolean).join(" · ");
+}
+
+function buildVerdictSentence(decision) {
+  if (decision.step === "3" && decision.label === "바로 열람 가능") {
+    return "구독형 도서관에서 바로 열람 가능";
+  }
+  if (decision.step === "1" && decision.label === "볼 수 없음") {
+    return "밀리의서재 링크가 있어도 현재 열람 가능한 책은 아닙니다.";
+  }
+  if ((decision.step === "5" || decision.step === "6") && decision.label.includes("예약")) {
+    return `${decision.title} · ${decision.label}`;
+  }
+  return decision.text;
+}
+
+function renderDecisionRoute(decision) {
   const card = document.createElement("li");
-  card.className = `flow-decision-card flow-decision-card--${decision.tone} is-${decision.tone}`;
+  card.className = `decision-route decision-route--${decision.tone} is-${decision.tone}`;
+  card.dataset.step = decision.step;
 
   const step = document.createElement("p");
-  step.className = "flow-decision-card__step";
+  step.className = "decision-route__number";
   step.textContent = `${decision.step}단계`;
   card.appendChild(step);
 
   const title = document.createElement("h5");
-  title.className = "flow-decision-card__question flow-decision-card__title";
+  title.className = "decision-route__title";
   title.textContent = `${decision.step}. ${decision.title}`;
   card.appendChild(title);
 
   const status = document.createElement("strong");
-  status.className = "flow-decision-card__answer";
+  status.className = "decision-route__answer";
   status.textContent = decision.label;
   card.appendChild(status);
 
   const text = document.createElement("p");
-  text.className = "flow-decision-card__copy";
+  text.className = "decision-route__copy";
   text.textContent = decision.text;
   card.appendChild(text);
 
   if (decision.providerName || decision.bookTitle || decision.evidence) {
     const evidence = document.createElement("p");
-    evidence.className = "flow-decision-card__evidence flow-decision-card__supporting-results";
+    evidence.className = "decision-route__evidence";
     evidence.textContent = [decision.providerName, decision.bookTitle, decision.evidence]
       .filter(Boolean)
       .join(" · ");
@@ -731,7 +637,7 @@ function renderDecisionCard(decision) {
 
   if (decision.href) {
     const link = document.createElement("a");
-    link.className = "flow-decision-card__link flow-decision-card__action";
+    link.className = "decision-route__action";
     link.href = decision.href;
     link.target = "_blank";
     link.rel = "noopener noreferrer";
@@ -783,29 +689,30 @@ function renderResults(results, options = {}) {
   for (const provider of sortedProviders) {
     const items = provider.books || [];
     const card = providerTemplate.content.cloneNode(true);
-    const root = card.querySelector(".provider-card");
+    const root = card.querySelector(".ledger-provider");
+    root.classList.add("library-ledger__provider");
 
     root.querySelector(".provider-name").textContent = provider.providerName;
     root.querySelector(".provider-meta").textContent = `파싱 도서 ${items.length}권 · ${getLibraryModelLabel(provider)}`;
     root.querySelector(".search-link").href = provider.searchURL;
     root.querySelector(".login-link").href = provider.loginURL;
 
-    const providerTags = root.querySelector(".provider-tags");
+    const providerTags = root.querySelector(".ledger-provider__tags");
     const storeNames = Array.from(new Set(items.map((book) => normalizeStoreName(book.storeName))));
     const modelTag = document.createElement("span");
-    modelTag.className = `provider-tag ${
+    modelTag.className = `ledger-provider__tag ${
       provider.libraryModel === "subscription" ? "is-subscription" : "is-owned"
     }`;
     modelTag.textContent = getLibraryModelLabel(provider);
     providerTags.appendChild(modelTag);
     for (const storeName of storeNames.sort(compareStoreNames)) {
       const storeTag = document.createElement("span");
-      storeTag.className = "provider-tag is-store";
+      storeTag.className = "ledger-provider__tag is-store";
       storeTag.textContent = storeName;
       providerTags.appendChild(storeTag);
     }
 
-    const highlight = root.querySelector(".provider-highlight");
+    const highlight = root.querySelector(".ledger-provider__signal");
     highlight.classList.add(provider.providerInstantCount > 0 ? "has-instant" : "no-instant");
     highlight.textContent =
       provider.providerInstantCount > 0 ? "바로 대출 후보 있음" : "바로 대출 후보 없음";
@@ -816,7 +723,7 @@ function renderResults(results, options = {}) {
       ? `연결 상태: 정상 (${provider.statusCode})`
       : `연결 상태: 실패 (${provider.error || provider.statusCode})`;
 
-    const bookList = root.querySelector(".provider-books");
+    const bookList = root.querySelector(".ledger-provider__books");
     const sortedItems = [...items].sort(compareBooksForBorrowFirst);
     const groupedItems = groupBooksByStore(sortedItems);
 
@@ -835,18 +742,18 @@ function renderResults(results, options = {}) {
 
     for (const group of groupedItems) {
       const groupNode = document.createElement("section");
-      groupNode.className = "provider-store-group";
+      groupNode.className = "ledger-provider__store-group";
 
       const groupTitle = document.createElement("p");
-      groupTitle.className = "provider-store-title";
+      groupTitle.className = "ledger-provider__store-title";
       groupTitle.textContent = `${group.storeName} · ${group.books.length}권`;
       groupNode.appendChild(groupTitle);
 
       for (const book of group.books) {
         const node = rowTemplate.content.cloneNode(true);
         const stateView = renderState(book.decision);
-        const itemNode = node.querySelector(".book-item");
-        itemNode.classList.add(stateView.containerClass);
+        const itemNode = node.querySelector(".catalog-record");
+        itemNode.classList.add("catalog-record", stateView.containerClass);
         const coverNode = node.querySelector(".book-cover");
         const optimizedCoverURL = optimizeCoverImageURL(book.coverImageURL);
         if (optimizedCoverURL) {
@@ -871,7 +778,7 @@ function renderResults(results, options = {}) {
           actionLinksNode.remove();
         }
         const statusNode = node.querySelector(".book-status");
-        statusNode.classList.add(stateView.textClass);
+        statusNode.classList.add("catalog-record__status", stateView.textClass);
         statusNode.textContent = stateView.text;
         node.querySelector(".book-counts").textContent = renderCounts(book);
         groupNode.appendChild(node);
@@ -1278,47 +1185,6 @@ function getLibraryModelLabel(providerOrModel) {
     return "구독형 도서관";
   }
   return "소장형 도서관";
-}
-
-function renderFallbackLinks(flow) {
-  fallbackLinks.replaceChildren();
-
-  const heading = document.createElement("h4");
-  heading.textContent = "대안 바로가기";
-  fallbackLinks.appendChild(heading);
-
-  const muted = document.createElement("p");
-  muted.className = "guide-muted";
-  muted.textContent = "검색 후 자동 안내됩니다.";
-  fallbackLinks.appendChild(muted);
-
-  if (!flow) {
-    return;
-  }
-
-  const millieLink = document.createElement("a");
-  millieLink.href = flow.phase1.searchURL;
-  millieLink.target = "_blank";
-  millieLink.rel = "noopener noreferrer";
-  millieLink.textContent = flow.phase1.hasBorrowable
-    ? "밀리의서재 검색 열기 (후보 있음)"
-    : "밀리의서재 검색 열기";
-
-  const externalLinks = flow.phase3.externalLinks?.length
-    ? flow.phase3.externalLinks
-    : [{ label: "외부 전자책 서비스 검색", searchURL: flow.phase3.searchURL }];
-
-  fallbackLinks.appendChild(millieLink);
-  for (const externalLink of externalLinks) {
-    const link = document.createElement("a");
-    link.href = externalLink.searchURL;
-    link.target = "_blank";
-    link.rel = "noopener noreferrer";
-    link.textContent = flow.phase3.enabled
-      ? `${externalLink.label} 열기 (활성)`
-      : `${externalLink.label} 열기`;
-    fallbackLinks.appendChild(link);
-  }
 }
 
 function formatSearchedAt(isoString) {

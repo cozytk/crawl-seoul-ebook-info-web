@@ -8,40 +8,29 @@
     <link rel="stylesheet" href="/styles.css" />
   </head>
   <body>
-    <main class="app-shell">
-      <header class="topbar">
-        <div class="brand">
+    <main class="book-routing-app" data-no-left-rails="true">
+      <header class="routing-command">
+        <div class="routing-command__brand">
           <img
-            class="brand-logo"
+            class="routing-command__logo"
             src="/seoul-shelf-logo.png"
             alt="서울 책장 로고"
             width="36"
             height="36"
           />
           <div>
-            <p class="brand-kicker">SEOUL E-BOOK</p>
-            <h1>서울 eBook Finder</h1>
+            <p class="routing-command__kicker">서울 책 입수 데스크</p>
+            <h1>어디서 읽을 수 있는지 바로 판정</h1>
           </div>
         </div>
-        <div class="topbar-meta">
-          <p class="meta-pill" id="supported-count">지원 검색처 0개</p>
-          <p class="meta-pill"><span aria-hidden="true"></span>실시간 분석</p>
-        </div>
-      </header>
-
-      <section class="hero">
-        <p class="hero-kicker">서울 전역 전자도서관 통합 탐색</p>
-        <h2>검색 직후, 어디서 바로 빌릴 수 있는지 먼저 보여줍니다</h2>
-        <p class="hero-desc">
-          검색 결과에서 대출 가능 여부를 먼저 확인하고, 필요하면 다음 단계로 이동하세요.
-        </p>
-        <form id="search-form">
+        <form id="search-form" class="routing-command__search">
           <label for="q" class="sr-only">도서 검색어</label>
           <input
             id="q"
+            class="routing-command__field"
             name="q"
             type="text"
-            placeholder="예: 클린 코드"
+            placeholder="책 제목을 입력하세요"
             autocomplete="off"
             aria-describedby="search-help"
             required
@@ -49,74 +38,63 @@
           <button type="submit">검색</button>
         </form>
         <p id="search-help" class="sr-only">책 제목 또는 키워드를 입력하고 검색 버튼을 누르세요.</p>
-        <section class="supported-panel">
-          <div class="section-head">
-            <h3>지원 검색처</h3>
-            <p>현재 연동 가능한 도서관 및 외부 전자책 서비스</p>
+        <div class="routing-command__meta">
+          <p id="supported-count">지원 검색처 0개</p>
+          <p id="search-time" role="status" aria-live="polite"></p>
+        </div>
+      </header>
+
+      <section class="routing-board">
+        <section class="decision-workspace" aria-label="판정 결과">
+          <div class="decision-workspace__head">
+            <p>판정 결과</p>
+            <strong id="result-meta" aria-live="polite">여섯 단계로 바로 읽기, 대출, 예약 가능성을 먼저 보여줍니다.</strong>
+          </div>
+          <div class="results-layout">
+            <section
+              id="decision-board"
+              class="decision-runway"
+              data-no-left-rails="true"
+              aria-labelledby="decision-runway-title"
+              aria-live="polite"
+              aria-busy="false"
+            ></section>
+            <section id="result" class="library-ledger results-list" aria-live="polite" aria-busy="false"></section>
+          </div>
+        </section>
+
+        <aside class="provider-dock" aria-label="지원 검색처">
+          <div class="provider-dock__head">
+            <h2>검색처</h2>
+            <p>외부 구독, 전자도서관, 실물 소장을 한 번에 훑습니다.</p>
           </div>
           <div id="supported-libraries" class="supported-list">
             <p class="supported-empty">불러오는 중...</p>
           </div>
-        </section>
-      </section>
-
-      <section class="results-panel">
-        <div class="results-layout">
-          <div class="results-main">
-            <div class="results-head">
-              <div>
-                <h3>판단 결과</h3>
-                <p id="result-meta" aria-live="polite">여섯 단계로 바로 읽기, 대출, 예약 가능성을 먼저 보여줍니다.</p>
-              </div>
-              <p id="search-time" class="search-time" role="status" aria-live="polite"></p>
-            </div>
-            <section
-              id="decision-board"
-              class="availability-flow"
-              aria-labelledby="availability-flow-title"
-              aria-live="polite"
-              aria-busy="false"
-            ></section>
-            <div id="result" class="results-list" aria-live="polite" aria-busy="false"></div>
-          </div>
-          <aside class="results-side">
-            <article class="guide-card">
-              <h4>탐색 흐름</h4>
-              <div id="flow" class="flow-list"></div>
-            </article>
-            <article class="guide-card" id="fallback-links">
-              <h4>대안 바로가기</h4>
-              <p class="guide-muted">검색 후 자동 안내됩니다.</p>
-            </article>
-            <article class="guide-card">
-              <h4>안내</h4>
-              <p>최종 대출/예약 가능 여부는 각 도서관 상세 페이지에서 확인하세요.</p>
-            </article>
-          </aside>
-        </div>
+        </aside>
       </section>
     </main>
 
-    <template id="provider-card-template">
-      <article class="provider-card">
-        <header class="provider-head">
+    <template id="ledger-provider-template">
+      <article class="ledger-provider">
+        <header class="ledger-provider__head">
           <div>
             <h4 class="provider-name"></h4>
             <p class="provider-meta"></p>
-            <div class="provider-tags"></div>
+            <div class="ledger-provider__tags"></div>
           </div>
-          <p class="provider-highlight"></p>
+          <p class="ledger-provider__signal"></p>
         </header>
-        <div class="provider-links">
+        <div class="ledger-provider__links">
           <a class="search-link" target="_blank" rel="noopener noreferrer">검색 페이지</a>
           <a class="login-link" target="_blank" rel="noopener noreferrer">로그인 페이지</a>
         </div>
-        <div class="provider-books"></div>
+        <div class="ledger-provider__books"></div>
       </article>
     </template>
 
     <template id="book-row-template">
-      <article class="book-item">
+      <article class="catalog-record">
         <img class="book-cover" loading="lazy" decoding="async" alt="" />
         <a class="book-detail-link" target="_blank" rel="noopener noreferrer">
           <p class="book-title"></p>
