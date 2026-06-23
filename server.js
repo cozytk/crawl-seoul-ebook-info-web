@@ -1369,7 +1369,8 @@ function constructURL(provider, searchTerm) {
 function isImmediateBorrowCandidate(book) {
   return (
     book?.decision?.state === "borrow_now" &&
-    book.decision?.reason !== "subscription_provider_listed"
+    book.decision?.reason !== "subscription_provider_listed" &&
+    book.decision?.reason !== "library_subscription_provider_listed"
   );
 }
 

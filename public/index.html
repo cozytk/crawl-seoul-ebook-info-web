@@ -65,11 +65,18 @@
           <div class="results-main">
             <div class="results-head">
               <div>
-                <h3>검색처 상세 결과</h3>
-                <p id="result-meta" aria-live="polite">즉시대출 가능 도서관이 상단에 우선 배치됩니다.</p>
+                <h3>판단 결과</h3>
+                <p id="result-meta" aria-live="polite">여섯 단계로 바로 읽기, 대출, 예약 가능성을 먼저 보여줍니다.</p>
               </div>
               <p id="search-time" class="search-time" role="status" aria-live="polite"></p>
             </div>
+            <section
+              id="decision-board"
+              class="availability-flow"
+              aria-labelledby="availability-flow-title"
+              aria-live="polite"
+              aria-busy="false"
+            ></section>
             <div id="result" class="results-list" aria-live="polite" aria-busy="false"></div>
           </div>
           <aside class="results-side">

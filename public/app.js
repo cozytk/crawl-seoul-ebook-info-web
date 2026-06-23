@@ -1,6 +1,7 @@
 const form = document.querySelector("#search-form");
 const queryInput = document.querySelector("#q");
 const flowEl = document.querySelector("#flow");
+const decisionBoard = document.querySelector("#decision-board");
 const resultEl = document.querySelector("#result");
 const rowTemplate = document.querySelector("#book-row-template");
 const providerTemplate = document.querySelector("#provider-card-template");
@@ -19,6 +20,7 @@ init();
 
 async function init() {
   renderFlowPlaceholder();
+  renderDecisionBoardPlaceholder();
   renderFallbackLinks();
   await loadSupportedLibraries();
 }
@@ -39,6 +41,7 @@ form.addEventListener("submit", async (event) => {
   activeSearchController = controller;
 
   flowEl.replaceChildren();
+  renderDecisionBoardLoading(query);
   renderResultNotice("검색 중입니다. 도서관 페이지를 순차 분석하고 있어요.", "loading-state");
   resultEl.setAttribute("aria-busy", "true");
   resultMeta.textContent = `"${query}" 검색 중...`;
@@ -64,7 +67,11 @@ form.addEventListener("submit", async (event) => {
       }
 
       renderFlow(data.flow);
-      renderResults(data.libraryResults);
+      renderResults(data.libraryResults, {
+        isComplete: true,
+        completedProviders: data.libraryResults.length,
+        totalProviders: data.libraryResults.length
+      });
       resultMeta.textContent = `"${data.query}" 기준 ${data.libraryResults.length}개 검색처 분석 완료`;
       searchTime.textContent = formatSearchedAt(data.searchedAt);
       renderFallbackLinks(data.flow);
@@ -80,6 +87,7 @@ form.addEventListener("submit", async (event) => {
 
     const message = error instanceof Error ? error.message : "알 수 없는 오류";
     renderFlowPlaceholder();
+    renderDecisionBoardError(message);
     renderResultNotice(`오류: ${message}`, "result-error");
     resultMeta.textContent = "오류가 발생했습니다.";
     searchTime.textContent = "";
@@ -134,7 +142,11 @@ async function streamSearchResults(query, signal, requestId) {
       if (event.type === "provider") {
         completedProviders += 1;
         streamedResults.push(event.data);
-        renderResults(streamedResults);
+        renderResults(streamedResults, {
+          isComplete: false,
+          completedProviders,
+          totalProviders
+        });
         resultMeta.textContent = `"${query}" 기준 ${completedProviders}/${totalProviders || "?"}개 검색처 분석 중`;
       }
 
@@ -145,6 +157,11 @@ async function streamSearchResults(query, signal, requestId) {
       }
 
       if (event.type === "done") {
+        renderResults(streamedResults, {
+          isComplete: true,
+          completedProviders: streamedResults.length,
+          totalProviders: totalProviders || streamedResults.length
+        });
         if (!flow) {
           flow = buildFallbackFlow(query, streamedResults);
           renderFlow(flow);
@@ -287,39 +304,36 @@ function renderFlow(flow) {
     return;
   }
 
-  const phase1Text = flow.phase1.hasPrimary
-    ? "전자책으로 바로 볼 수 있는 후보가 있습니다."
-    : flow.phase1.hasBorrowable
-      ? "밀리 후보가 있습니다. 전자책이 없으면 오디오북도 확인하세요."
-      : "밀리 후보가 없어 서울 전자책 검색을 우선 확인합니다.";
-
-  const phase2Text = flow.phase2.enabled
-    ? flow.phase2.hasBorrowable
-      ? "서울 전역 전자책에서 대출 가능 후보가 있습니다."
-      : "서울 전역 전자책 후보가 부족하면 은평 실물도서를 확인하세요."
-    : "밀리 전자책 후보가 있어 후순위로 배치합니다.";
-
-  const phase3Text = flow.phase3.enabled
-    ? flow.phase3.hasBorrowable
-      ? "은평구공공도서관 실물 대출 가능 후보가 있습니다."
-      : "은평 실물 소장/예약/상호대차/무인예약 여부를 확인하세요."
-    : "전자책 후보가 있어 후순위로 배치합니다.";
-
   const flowItems = [
     {
-      title: `1단계 · ${flow.phase1.label}`,
-      text: phase1Text,
+      title: "1단계 · 밀리의서재 바로 보기",
+      text: flow.phase1.hasPrimary ? "바로 볼 수 있으면 여기서 멈춥니다." : "볼 수 없으면 다음 대출형 도서관을 봅니다.",
       active: flow.phase1.hasBorrowable
     },
     {
-      title: `2단계 · ${flow.phase2.label}`,
-      text: phase2Text,
+      title: "2단계 · 대출형 전자도서관",
+      text: "소장형 전자책을 바로 대출할 수 있는지 확인합니다.",
       active: flow.phase2.enabled
     },
     {
-      title: `3단계 · ${flow.phase3.label}`,
-      text: phase3Text,
+      title: "3단계 · 구독형 도서관",
+      text: "서울도서관 등 구독형 전자책으로 바로 열람 가능한지 확인합니다.",
+      active: flow.phase2.enabled
+    },
+    {
+      title: "4단계 · 은평 실물 직접 대출",
+      text: "전자책이 부족하면 은평구 공공도서관 실물 대출을 확인합니다.",
       active: flow.phase3.enabled
+    },
+    {
+      title: "5단계 · 은평 실물 직접 예약",
+      text: "직접 대출이 안 되면 예약 가능한 실물 소장본을 봅니다.",
+      active: flow.phase3.enabled
+    },
+    {
+      title: "6단계 · 전체 예약 후보",
+      text: "마지막으로 어느 도서관에서라도 예약 가능한지 확인합니다.",
+      active: true
     }
   ];
 
@@ -329,18 +343,33 @@ function renderFlow(flow) {
 function renderFlowPlaceholder() {
   const flowItems = [
     {
-      title: "1단계 · 밀리의서재 확인",
-      text: "전자책 후보를 먼저 확인하고, 없으면 오디오북을 보조로 봅니다.",
+      title: "1단계 · 밀리의서재 바로 보기",
+      text: "바로 볼 수 있는지 먼저 확인합니다.",
       active: false
     },
     {
-      title: "2단계 · 서울 전역 전자책 검색",
-      text: "서울권 전자도서관의 대출 가능 여부를 확인합니다.",
+      title: "2단계 · 대출형 전자도서관",
+      text: "바로 빌릴 수 있는 소장형 전자책을 확인합니다.",
       active: false
     },
     {
-      title: "3단계 · 은평구공공도서관 실물 대출",
-      text: "대조꿈나무, 상호대차/무인예약 가능, 타 도서관 순으로 봅니다.",
+      title: "3단계 · 구독형 도서관",
+      text: "구독형 전자책으로 열람 가능한지 확인합니다.",
+      active: false
+    },
+    {
+      title: "4단계 · 은평 실물 직접 대출",
+      text: "직접 빌릴 수 있는 은평 실물도서를 확인합니다.",
+      active: false
+    },
+    {
+      title: "5단계 · 은평 실물 직접 예약",
+      text: "예약 가능한 은평 실물도서를 확인합니다.",
+      active: false
+    },
+    {
+      title: "6단계 · 전체 예약 후보",
+      text: "어느 도서관에서라도 예약 가능한지 확인합니다.",
       active: false
     }
   ];
@@ -386,10 +415,364 @@ function renderResultNotice(message, className) {
   resultEl.appendChild(notice);
 }
 
-function renderResults(results) {
+function renderDecisionBoardPlaceholder() {
+  if (!decisionBoard) {
+    return;
+  }
+  decisionBoard.className = "availability-flow";
+  decisionBoard.setAttribute("aria-busy", "false");
+  const steps = [
+    ["1", "밀리의서재", "바로 볼 수 있는지 확인"],
+    ["2", "대출형 전자도서관", "바로 빌릴 수 있는지 확인"],
+    ["3", "구독형 도서관", "바로 열람 가능한지 확인"],
+    ["4", "은평 실물 대출", "지금 직접 빌릴 수 있는지 확인"],
+    ["5", "은평 실물 예약", "예약 가능한 소장본이 있는지 확인"],
+    ["6", "전체 예약", "어느 도서관이든 예약 가능한지 확인"]
+  ];
+  decisionBoard.replaceChildren(buildDecisionBoardShell("검색하면 판단 흐름이 여기에 표시됩니다.", steps));
+}
+
+function renderDecisionBoardLoading(query) {
+  if (!decisionBoard) {
+    return;
+  }
+  decisionBoard.className = "availability-flow";
+  decisionBoard.setAttribute("aria-busy", "true");
+  const loadingSteps = buildAvailabilityDecisions([], { isComplete: false }).map((step) => [
+    step.step,
+    step.title,
+    `"${query}" 분석 중`
+  ]);
+  decisionBoard.replaceChildren(buildDecisionBoardShell("도서관별 응답을 기다리는 중입니다.", loadingSteps));
+}
+
+function renderDecisionBoardError(message) {
+  if (!decisionBoard) {
+    return;
+  }
+  decisionBoard.className = "availability-flow";
+  decisionBoard.setAttribute("aria-busy", "false");
+  const errorSteps = buildAvailabilityDecisions([], { isComplete: true }).map((step) => [
+    step.step,
+    step.title,
+    step.step === "1" ? `검색 오류: ${message}` : "검색 후 다시 확인"
+  ]);
+  decisionBoard.replaceChildren(buildDecisionBoardShell("검색을 완료하지 못했습니다. 입력값을 확인하고 다시 시도해 주세요.", errorSteps));
+}
+
+function buildDecisionBoardShell(summary, steps) {
+  const fragment = document.createDocumentFragment();
+  const head = document.createElement("header");
+  head.className = "availability-flow__head availability-flow__header";
+
+  const mark = document.createElement("p");
+  mark.className = "availability-flow__mark";
+  mark.textContent = "판정표";
+  head.appendChild(mark);
+
+  const title = document.createElement("h4");
+  title.id = "availability-flow-title";
+  title.textContent = "읽을 수 있는 순서대로 확인";
+  head.appendChild(title);
+
+  const body = document.createElement("p");
+  body.className = "availability-flow__summary";
+  body.textContent = summary;
+  head.appendChild(body);
+  fragment.appendChild(head);
+
+  const grid = document.createElement("ol");
+  grid.className = "availability-flow__rail availability-flow__list";
+  for (const step of steps) {
+    const card = document.createElement("li");
+    card.className = "flow-decision-card flow-decision-card--pending is-pending";
+
+    const stepLabel = document.createElement("p");
+    stepLabel.className = "flow-decision-card__step";
+    stepLabel.textContent = `${step[0]}단계`;
+    card.appendChild(stepLabel);
+
+    const cardTitle = document.createElement("h5");
+    cardTitle.className = "flow-decision-card__question flow-decision-card__title";
+    cardTitle.textContent = `${step[0]}. ${step[1]}`;
+    card.appendChild(cardTitle);
+
+    const status = document.createElement("strong");
+    status.className = "flow-decision-card__answer";
+    status.textContent = step[2];
+    card.appendChild(status);
+    grid.appendChild(card);
+  }
+  fragment.appendChild(grid);
+  return fragment;
+}
+
+function renderDecisionBoard(providers, options = {}) {
+  if (!decisionBoard) {
+    return;
+  }
+  decisionBoard.className = "availability-flow";
+  decisionBoard.setAttribute("aria-busy", options.isComplete ? "false" : "true");
+
+  const decisions = buildAvailabilityDecisions(providers, options);
+  const completed = options.completedProviders ?? providers.length;
+  const total = options.totalProviders || providers.length;
+  const summary = options.isComplete
+    ? summarizeDecisionFlow(decisions)
+    : `${completed}/${total || "?"}개 검색처 분석 중입니다. 아직 도착하지 않은 검색처는 대기 상태로 표시됩니다.`;
+
+  decisionBoard.replaceChildren();
+  const head = document.createElement("header");
+  head.className = "availability-flow__head availability-flow__header";
+
+  const mark = document.createElement("p");
+  mark.className = "availability-flow__mark";
+  mark.textContent = "판정표";
+  head.appendChild(mark);
+
+  const title = document.createElement("h4");
+  title.id = "availability-flow-title";
+  title.textContent = "읽을 수 있는 순서대로 확인";
+  head.appendChild(title);
+
+  const body = document.createElement("p");
+  body.className = "availability-flow__summary";
+  body.textContent = summary;
+  head.appendChild(body);
+  decisionBoard.appendChild(head);
+
+  const grid = document.createElement("ol");
+  grid.className = "availability-flow__rail availability-flow__list";
+  for (const decision of decisions) {
+    grid.appendChild(renderDecisionCard(decision));
+  }
+  decisionBoard.appendChild(grid);
+}
+
+function summarizeDecisionFlow(decisions) {
+  const firstActionable = decisions.find((decision) => decision.tone === "good" || decision.tone === "warn");
+  if (!firstActionable) {
+    return "먼저 가능한 첫 단계가 아직 없습니다. 아래 결과에서 검색 페이지를 직접 확인해 주세요.";
+  }
+  const reserveAction = decisions.find((decision) => decision.tone === "warn" && decision.label.includes("예약"));
+  const reserveCopy =
+    reserveAction && reserveAction !== firstActionable
+      ? ` 예약 가능 단계: ${reserveAction.step}단계 ${reserveAction.title}.`
+      : "";
+  return `먼저 가능한 첫 단계: ${firstActionable.step}단계 ${firstActionable.title} · ${firstActionable.label}.${reserveCopy}`;
+}
+
+function buildAvailabilityDecisions(providers, options = {}) {
+  const candidates = providers.flatMap((provider) =>
+    (provider.books || []).map((book) => ({
+      provider,
+      book
+    }))
+  );
+  const isComplete = Boolean(options.isComplete);
+  const findBest = (predicate) =>
+    candidates
+      .filter(({ book }) => isStrongTitleCandidate(book))
+      .filter(predicate)
+      .sort((left, right) => scoreBookPriority(right.book) - scoreBookPriority(left.book))[0] || null;
+
+  return [
+    buildDecision({
+      step: "1",
+      title: "밀리의서재에서 바로 보기",
+      positiveLabel: "바로 볼 수 있음",
+      positiveText: "밀리에서 바로 열람할 수 있습니다.",
+      negativeLabel: "볼 수 없음",
+      negativeText: "밀리 검색 결과는 있지만 현재 열람 가능한 상태가 아닙니다.",
+      pendingText: "밀리 결과 분석 중",
+      toneWhenNegative: "bad",
+      hit: findBest(({ provider, book }) => provider.providerId === "millie" && isBorrowNow(book)),
+      isComplete
+    }),
+    buildDecision({
+      step: "2",
+      title: "대출형 전자도서관에서 빌리기",
+      positiveLabel: "바로 대출 가능",
+      positiveText: "소장형 전자도서관에서 바로 대출할 수 있습니다.",
+      negativeLabel: "바로 대출 없음",
+      negativeText: "대출형 전자도서관에서는 바로 빌릴 후보가 없습니다.",
+      pendingText: "대출형 도서관 분석 중",
+      hit: findBest(
+        ({ provider, book }) =>
+          isOwnedLibraryProvider(provider) &&
+          isBorrowNow(book) &&
+          !isSubscriptionBorrowReason(book.decision?.reason)
+      ),
+      isComplete
+    }),
+    buildDecision({
+      step: "3",
+      title: "구독형 도서관에서 열람하기",
+      positiveLabel: "바로 열람 가능",
+      positiveText: "구독형 도서관에서 바로 열람할 수 있습니다.",
+      negativeLabel: "열람 후보 없음",
+      negativeText: "다른 구독형 도서관에서 바로 열람 가능한 후보가 없습니다.",
+      pendingText: "구독형 도서관 분석 중",
+      hit: findBest(({ provider, book }) => provider.providerId !== "millie" && isLibrarySubscriptionBorrow(provider, book)),
+      isComplete
+    }),
+    buildDecision({
+      step: "4",
+      title: "은평구 공공도서관 직접 대출",
+      positiveLabel: "직접 대출 가능",
+      positiveText: "은평구 공공도서관 실물도서를 지금 빌릴 수 있습니다.",
+      negativeLabel: "직접 대출 없음",
+      negativeText: "은평구 공공도서관에서 지금 바로 빌릴 실물도서 후보가 없습니다.",
+      pendingText: "은평 실물 대출 분석 중",
+      hit: findBest(({ provider, book }) => provider.isPhysicalProvider && isBorrowNow(book)),
+      isComplete
+    }),
+    buildDecision({
+      step: "5",
+      title: "은평구 공공도서관 직접 예약",
+      positiveLabel: "예약 가능",
+      positiveText: "은평구 공공도서관 실물도서를 예약할 수 있습니다.",
+      negativeLabel: "예약 후보 없음",
+      negativeText: "은평구 공공도서관에서 예약 가능한 실물도서 후보가 없습니다.",
+      pendingText: "은평 실물 예약 분석 중",
+      toneWhenPositive: "warn",
+      hit: findBest(({ provider, book }) => provider.isPhysicalProvider && isPhysicalReservationActionable(book)),
+      isComplete
+    }),
+    buildDecision({
+      step: "6",
+      title: "어느 도서관이든 예약하기",
+      positiveLabel: "예약 후보 있음",
+      positiveText: "검색된 도서관 중 예약 가능한 후보가 있습니다.",
+      negativeLabel: "예약 후보 없음",
+      negativeText: "현재 자동 판정으로 예약 가능한 후보가 없습니다.",
+      pendingText: "전체 예약 가능성 분석 중",
+      toneWhenPositive: "warn",
+      hit: findBest(({ book }) => isAnyReservationCandidate(book)),
+      isComplete
+    })
+  ];
+}
+
+function buildDecision({
+  step,
+  title,
+  positiveLabel,
+  positiveText,
+  negativeLabel,
+  negativeText,
+  pendingText,
+  toneWhenPositive = "good",
+  toneWhenNegative = "neutral",
+  hit,
+  isComplete
+}) {
+  if (hit) {
+    return {
+      step,
+      title,
+      label: positiveLabel,
+      text: positiveText,
+      tone: toneWhenPositive,
+      providerName: hit.provider.providerName,
+      bookTitle: hit.book.title,
+      evidence: buildDecisionEvidence(hit.provider, hit.book),
+      actionLabel: buildDecisionActionLabel(hit.provider, hit.book),
+      href: hit.book.detailURL || hit.provider.searchURL
+    };
+  }
+
+  return {
+    step,
+    title,
+    label: isComplete ? negativeLabel : "분석 중",
+    text: isComplete ? negativeText : pendingText,
+    tone: isComplete ? toneWhenNegative : "pending",
+    providerName: "",
+    bookTitle: "",
+    evidence: "",
+    actionLabel: isComplete ? "다음 후보 확인" : "검색 결과 대기",
+    href: null
+  };
+}
+
+function renderDecisionCard(decision) {
+  const card = document.createElement("li");
+  card.className = `flow-decision-card flow-decision-card--${decision.tone} is-${decision.tone}`;
+
+  const step = document.createElement("p");
+  step.className = "flow-decision-card__step";
+  step.textContent = `${decision.step}단계`;
+  card.appendChild(step);
+
+  const title = document.createElement("h5");
+  title.className = "flow-decision-card__question flow-decision-card__title";
+  title.textContent = `${decision.step}. ${decision.title}`;
+  card.appendChild(title);
+
+  const status = document.createElement("strong");
+  status.className = "flow-decision-card__answer";
+  status.textContent = decision.label;
+  card.appendChild(status);
+
+  const text = document.createElement("p");
+  text.className = "flow-decision-card__copy";
+  text.textContent = decision.text;
+  card.appendChild(text);
+
+  if (decision.providerName || decision.bookTitle || decision.evidence) {
+    const evidence = document.createElement("p");
+    evidence.className = "flow-decision-card__evidence flow-decision-card__supporting-results";
+    evidence.textContent = [decision.providerName, decision.bookTitle, decision.evidence]
+      .filter(Boolean)
+      .join(" · ");
+    card.appendChild(evidence);
+  }
+
+  if (decision.href) {
+    const link = document.createElement("a");
+    link.className = "flow-decision-card__link flow-decision-card__action";
+    link.href = decision.href;
+    link.target = "_blank";
+    link.rel = "noopener noreferrer";
+    link.textContent = decision.actionLabel || "상세 확인";
+    card.appendChild(link);
+  }
+
+  return card;
+}
+
+function buildDecisionActionLabel(provider, book) {
+  if (provider.providerId === "millie") {
+    return "밀리 상세 열기";
+  }
+  if (provider.isPhysicalProvider && isReservationActionable(book)) {
+    return "예약 페이지 확인";
+  }
+  if (provider.isPhysicalProvider) {
+    return "소장 위치 확인";
+  }
+  if (isLibrarySubscriptionBorrow(provider, book)) {
+    return "구독 열람 확인";
+  }
+  return "대출 페이지 확인";
+}
+
+function buildDecisionEvidence(provider, book) {
+  if (book.localLibraryAccess) {
+    return [book.localLoanStatus, book.localShelfLocation].filter(Boolean).join(" / ");
+  }
+  if (book.contentKindLabel) {
+    return `밀리 ${book.contentKindLabel}`;
+  }
+  return getLibraryModelLabel(provider);
+}
+
+function renderResults(results, options = {}) {
   sharedCoverURLByKey.clear();
   const enrichedProviders = results.map(deriveProviderStats);
   const sortedProviders = [...enrichedProviders].sort(compareProviders);
+  renderDecisionBoard(sortedProviders, options);
   resultEl.replaceChildren();
 
   if (!sortedProviders.length) {
@@ -549,10 +932,47 @@ function providerRank(provider) {
   return 4;
 }
 
+function isSubscriptionBorrowReason(reason) {
+  return reason === "subscription_provider_listed" || reason === "library_subscription_provider_listed";
+}
+
+function isBorrowNow(book) {
+  return book.decision?.state === "borrow_now";
+}
+
+function isOwnedLibraryProvider(provider) {
+  return !provider.isExternalProvider && !provider.isPhysicalProvider && provider.libraryModel !== "subscription";
+}
+
+function isLibrarySubscriptionBorrow(provider, book) {
+  return (
+    isBorrowNow(book) &&
+    !provider.isPhysicalProvider &&
+    (provider.isSubscriptionProvider || isSubscriptionBorrowReason(book.decision?.reason))
+  );
+}
+
+function isReservationActionable(book) {
+  return isAnyReservationCandidate(book);
+}
+
+function isPhysicalReservationActionable(book) {
+  return (
+    book.decision?.state === "reserve" &&
+    (
+      book.decision?.reason === "eunpyeong_public_reservable" ||
+      /예약\s*가능|예약가능/.test(book.rawStatusText || "") ||
+      book.isUnmannedReservationAvailable
+    )
+  );
+}
+
+function isAnyReservationCandidate(book) {
+  return book.decision?.state === "reserve";
+}
+
 function deriveProviderStats(provider) {
   const books = provider.books || [];
-  const isSubscriptionBorrowReason = (reason) =>
-    reason === "subscription_provider_listed" || reason === "library_subscription_provider_listed";
   const immediateBorrowBooks = books.filter(
     (book) =>
       book.decision?.state === "borrow_now" &&

@@ -1,4 +1,7 @@
 .vercel
+.omo/
+.omx/
+test-results/
 node_modules
 npm-debug.log*
 yarn-debug.log*
