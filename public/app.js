@@ -1,4 +1,4 @@
-import { entriesFrom, filterEntries, formatOf, groupEntries, bestEntry, previewEntries, sourceIssues, stateLabel } from './search-model.js';
+import { entriesFrom, filterEntries, formatOf, groupEntries, bestEntry, previewEntries, sourceIssues, stateLabel, incompleteProviderIds, readSearchView, searchViewURL } from './search-model.js';
 
 const $ = selector => document.querySelector(selector);
 const icons = {
@@ -13,7 +13,7 @@ const defaults = () => ({ format: 'all', status: 'all', provider: 'all' });
 const state = {
   query: '', providers: [], config: [], total: 0, loading: false, complete: false,
   error: '', stopped: false, filters: defaults(), sort: 'relevance', limit: 10,
-  expanded: new Set(), requestId: 0, controller: null, searchedAt: ''
+  expanded: new Set(), requestId: 0, controller: null, searchedAt: '', retrying: new Set()
 };
 let recent = readRecent();
 
@@ -89,10 +89,16 @@ $('#search-form').addEventListener('submit', event => {
   const query = $('#q').value.trim();
   if (query) search(query);
 });
-$('#q').addEventListener('input', () => { $('#clear-search').hidden = !$('#q').value; });
+$('#q').addEventListener('input', () => {
+  $('#clear-search').hidden = !$('#q').value;
+  $('#query-error').hidden = true;
+  $('#q').removeAttribute('aria-invalid');
+});
 $('#clear-search').addEventListener('click', () => {
   $('#q').value = '';
   $('#clear-search').hidden = true;
+  $('#query-error').hidden = true;
+  $('#q').removeAttribute('aria-invalid');
   $('#q').focus();
 });
 $('#cancel-search').addEventListener('click', () => {
@@ -101,10 +107,28 @@ $('#cancel-search').addEventListener('click', () => {
   state.controller = null;
   state.loading = false;
   state.stopped = true;
+  state.retrying.clear();
   render();
   announce('검색을 중지했습니다. 도착한 결과는 계속 확인할 수 있습니다.');
   $('#q').focus();
 });
+$('#refresh-search').addEventListener('click', () => search(state.query, { preserve: true, fresh: true }));
+$('#share-search').addEventListener('click', async () => {
+  const url = searchViewURL(location.href, state);
+  try {
+    await navigator.clipboard.writeText(url);
+    announce('검색어와 필터가 담긴 링크를 복사했습니다.');
+    $('#share-search').textContent = '복사 완료';
+    setTimeout(() => { $('#share-search').textContent = '검색 공유'; }, 2000);
+  } catch {
+    $('#share-fallback').hidden = false;
+    $('#share-url').value = url;
+    $('#share-url').focus();
+    $('#share-url').select();
+    announce('검색 링크를 선택했습니다. 복사해 공유하세요.');
+  }
+});
+$('#close-share').addEventListener('click', () => { $('#share-fallback').hidden = true; $('#share-search').focus(); });
 for (const trigger of document.querySelectorAll('[data-open-sources]')) trigger.addEventListener('click', openSources);
 $('#close-sources').addEventListener('click', () => $('#sources-dialog').close());
 $('#sources-dialog').addEventListener('click', event => {
@@ -127,13 +151,14 @@ $('#load-more').addEventListener('click', () => {
   state.limit += 10;
   renderBooks();
   const firstNew = $('#book-results').children[oldLimit]?.querySelector('h3');
-  if (firstNew) { firstNew.tabIndex = -1; firstNew.focus({ preventScroll: true }); }
+  if (firstNew) { firstNew.tabIndex = -1; firstNew.focus(); }
   announce('다음 검색 결과를 표시했습니다.');
 });
 window.addEventListener('popstate', () => {
-  const query = new URL(location.href).searchParams.get('q')?.trim() || '';
+  const view = readSearchView(location.href);
+  const query = view.query;
   $('#q').value = query;
-  if (query) search(query, false);
+  if (query) search(query, { historyMode: 'none', view });
   else {
     state.requestId++;
     state.controller?.abort();
@@ -150,6 +175,7 @@ window.addEventListener('popstate', () => {
 function resetPageAndRender() {
   state.limit = 10;
   state.expanded.clear();
+  syncURL('replace');
   renderResults();
   announce($('#result-meta').textContent);
 }
@@ -161,43 +187,79 @@ function resetFilters() {
   $('#format-filters button').focus();
 }
 
-async function search(query, updateURL = true) {
+function syncURL(mode = 'replace') {
+  if (mode === 'none') return;
+  const url = searchViewURL(location.href, state);
+  if (url !== location.href) history[mode === 'push' ? 'pushState' : 'replaceState']({}, '', url);
+}
+
+function retrySources(ids = incompleteProviderIds(state.config, state.providers)) {
+  if (!ids.length || state.loading) return;
+  if ($('#sources-dialog').open) $('#sources-dialog').close();
+  $('#q').focus({ preventScroll: true });
+  search(state.query, { preserve: true, providers: ids, fresh: true });
+}
+
+async function search(query, { historyMode = 'push', view, preserve = false, providers, fresh = false } = {}) {
+  query = query.trim();
+  if (!query || query.length > 80 || /[\u0000-\u001F\u007F]/.test(query)) {
+    $('#q').value = query;
+    $('#q').setAttribute('aria-invalid', 'true');
+    $('#query-error').textContent = '검색어는 특수 제어 문자 없이 1자 이상 80자 이하로 입력해 주세요.';
+    $('#query-error').hidden = false;
+    announce('검색어는 1자 이상 80자 이하로 입력해 주세요.');
+    $('#q').focus();
+    return;
+  }
+  $('#query-error').hidden = true;
+  $('#q').removeAttribute('aria-invalid');
   state.controller?.abort();
   const requestId = ++state.requestId;
   const controller = new AbortController();
   Object.assign(state, {
-    query, providers: [], loading: true, complete: false, error: '', stopped: false,
-    filters: defaults(), total: state.config.length, limit: 10, controller, searchedAt: ''
+    query, providers: preserve ? state.providers : [], loading: true, complete: false, error: '', stopped: false,
+    filters: view?.filters || (preserve ? state.filters : defaults()),
+    sort: view?.sort || (preserve ? state.sort : 'relevance'),
+    total: state.config.length || state.total, limit: preserve ? state.limit : 10, controller,
+    searchedAt: preserve ? state.searchedAt : '', retrying: new Set(preserve ? (providers || state.config.map(p => p.id)) : []),
+    retryTotal: preserve ? (providers || state.config).length : 0
   });
-  state.expanded.clear();
+  if (!preserve) state.expanded.clear();
   $('#q').value = query;
   $('#clear-search').hidden = false;
-  $('#status-filter').value = 'all';
-  $('#provider-filter').value = 'all';
+  $('#status-filter').value = state.filters.status;
+  $('#provider-filter').value = state.filters.provider;
+  $('#sort-order').value = state.sort;
+  $('#share-fallback').hidden = true;
   $('#welcome').hidden = true;
   $('#search-results').hidden = false;
   document.body.classList.add('has-query');
   document.title = `${query} 검색 — 서울의 서재`;
-  if (updateURL) {
-    const url = new URL(location.href);
-    if (url.searchParams.get('q') !== query) {
-      url.searchParams.set('q', query);
-      history.pushState({}, '', url);
-    }
-  }
+  syncURL(historyMode);
   saveRecent(query);
   render();
   announce(`${query} 검색을 시작합니다. 도착하는 결과부터 표시합니다.`);
   try {
-    const response = await fetch(`/api/search/stream?q=${encodeURIComponent(query)}`, { signal: controller.signal });
+    const params = new URLSearchParams({ q: query });
+    if (providers?.length) params.set('providers', providers.join(','));
+    if (fresh) params.set('fresh', '1');
+    const response = await fetch(`/api/search/stream?${params}`, { signal: controller.signal });
     if (!response.ok || !response.body) {
       const data = await response.json().catch(() => ({}));
-      throw new Error(data.error || '검색 서비스에 연결하지 못했습니다.');
+      throw new Error(response.status === 429 ? '검색 요청이 많습니다. 1분 정도 기다린 뒤 다시 시도해 주세요.' : data.error || '검색 서비스에 연결하지 못했습니다.');
     }
     const reader = response.body.getReader();
     const decoder = new TextDecoder();
     let buffer = '';
     let receivedDone = false;
+    function mergeResults(results) {
+      for (const result of results) {
+        const index = state.providers.findIndex(p => p.providerId === result.providerId);
+        if (index >= 0) state.providers[index] = result;
+        else state.providers.push(result);
+        state.retrying.delete(result.providerId);
+      }
+    }
     function consume(chunk) {
       if (requestId !== state.requestId) return;
       const lines = chunk.split('\n');
@@ -206,17 +268,15 @@ async function search(query, updateURL = true) {
       if (!payload) return;
       const data = JSON.parse(payload);
       if (type === 'start') {
-        state.total = data.totalProviders || state.total;
+        if (!preserve) state.total = data.totalProviders || state.total;
         state.searchedAt = data.searchedAt || '';
       } else if (type === 'provider') {
-        const index = state.providers.findIndex(p => p.providerId === data.providerId);
-        if (index >= 0) state.providers[index] = data;
-        else state.providers.push(data);
+        mergeResults([data]);
       } else if (type === 'done') {
         receivedDone = true;
         state.searchedAt = data.searchedAt || state.searchedAt;
         // Some servers include final results; others only signal completion.
-        if (Array.isArray(data.libraryResults)) state.providers = data.libraryResults;
+        if (Array.isArray(data.libraryResults)) mergeResults(data.libraryResults);
         state.complete = true;
         state.loading = false;
       } else if (type === 'error') {
@@ -241,12 +301,14 @@ async function search(query, updateURL = true) {
   } catch (error) {
     if (requestId !== state.requestId || error.name === 'AbortError') return;
     state.complete = false;
-    state.error = error.message || '검색을 완료하지 못했습니다.';
+    state.error = navigator.onLine === false ? '인터넷 연결이 끊겼습니다. 연결 후 다시 시도해 주세요.' : error.message || '검색을 완료하지 못했습니다.';
     announce(`${state.error} 도착한 결과는 유지됩니다. 다시 검색해 주세요.`);
   } finally {
     if (requestId === state.requestId) {
       state.loading = false;
       state.controller = null;
+      state.retrying.clear();
+      state.retryTotal = 0;
       render();
     }
   }
@@ -255,16 +317,27 @@ async function search(query, updateURL = true) {
 function render() {
   const completed = state.providers.length;
   const issues = sourceIssues(state.providers);
+  const retryIds = incompleteProviderIds(state.config, state.providers);
+  const retrying = state.loading && state.retryTotal;
+  const progressTotal = retrying ? state.retryTotal : state.total || 1;
+  const progressDone = retrying ? state.retryTotal - state.retrying.size : completed;
   $('#cancel-search').hidden = !state.loading;
+  $('#refresh-search').disabled = state.loading;
+  $('#book-results').setAttribute('aria-busy', String(state.loading));
+  $('#cache-note').hidden = state.loading || !state.providers.some(p => p.cacheHit);
   $('#status-dot').className = `status-dot${state.loading ? ' pending' : state.error || state.stopped || issues.length ? ' interrupted' : ''}`;
-  $('#search-progress').style.width = `${state.complete ? 100 : Math.max(3, completed / (state.total || 1) * 100)}%`;
+  $('#search-progress').style.width = `${state.complete ? 100 : Math.max(3, progressDone / progressTotal * 100)}%`;
+  $('#search-progressbar').setAttribute('aria-valuemax', String(progressTotal));
+  $('#search-progressbar').setAttribute('aria-valuenow', String(Math.min(progressTotal, progressDone)));
+  $('#search-progressbar').setAttribute('aria-valuetext', `${progressTotal}곳 중 ${progressDone}곳 확인`);
   $('#progress-label').textContent = state.loading
-    ? `${state.total || '전체'}곳 중 ${completed}곳 확인 · 검색 중`
+    ? retrying ? `${state.retryTotal}곳 중 ${progressDone}곳 확인 · 다시 확인 중` : `${state.total || '전체'}곳 중 ${completed}곳 확인 · 검색 중`
     : state.stopped ? `검색 중지 · ${completed}곳의 결과 확인`
       : state.error ? `연결 중단 · ${completed}곳의 결과 확인`
         : `${completed}곳 확인 완료${state.searchedAt ? ` · ${new Date(state.searchedAt).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' })}` : ''}`;
   $('#coverage-status').textContent = issues.length ? `미완료 ${issues.length}곳 · 검색처 상태 ↗` : '검색처 상태 보기 ↗';
   const warning = $('#search-warning');
+  const focusedWarning = document.activeElement?.dataset.warningAction;
   warning.replaceChildren();
   warning.hidden = !issues.length && !state.error && !state.stopped;
   if (!warning.hidden) {
@@ -272,7 +345,20 @@ function render() {
       ? `${state.error} 도착한 결과는 아래에서 확인할 수 있어요.`
       : state.stopped ? '검색을 중지했어요. 아직 확인하지 못한 검색처가 있습니다.'
         : `${issues.length}곳의 검색 결과를 모두 확인하지 못했어요. 해당 도서관에도 책이 있을 수 있습니다.`));
-    warning.append(button(state.error || state.stopped ? '다시 검색' : '검색처 상태 확인', 'text-button', state.error || state.stopped ? () => search(state.query) : openSources));
+    const actions = el('div', 'warning-actions');
+    const addAction = (label, key, action) => {
+      const control = button(label, 'text-button', action);
+      control.dataset.warningAction = key;
+      actions.append(control);
+    };
+    if (retryIds.length && !state.loading) addAction(`미완료 ${retryIds.length}곳 다시 확인`, 'retry', () => retrySources(retryIds));
+    else if ((state.error || state.stopped) && !state.loading) addAction('다시 검색', 'retry', () => search(state.query, { preserve: true, fresh: true }));
+    addAction('검색처 상태', 'sources', openSources);
+    warning.append(actions);
+  }
+  if (focusedWarning) {
+    const replacement = [...warning.querySelectorAll('button')].find(control => control.dataset.warningAction === focusedWarning);
+    (replacement || $('#coverage-status')).focus({ preventScroll: true });
   }
   renderResults();
   if ($('#sources-dialog').open) renderSources();
@@ -294,7 +380,7 @@ function renderRecommendation(entries) {
   container.hidden = !candidate;
   if (!candidate) return;
   const { provider, book } = candidate;
-  const signature = `${candidate.key}:${book.decision.state}`;
+  const signature = `${candidate.key}:${book.decision.state}:${book.rawStatusText}:${provider.checkedAt}`;
   if (container.dataset.signature === signature) return;
   container.dataset.signature = signature;
   container.replaceChildren();
@@ -335,16 +421,24 @@ function renderBooks(entries = entriesFrom(state.providers)) {
     } else {
       const empty = el('div', 'empty-state');
       empty.append(svg('search'));
-      const incomplete = state.error || state.stopped || sourceIssues(state.providers).length;
-      empty.append(el('h3', '', activeFilter ? '선택한 조건에 맞는 책이 없어요' : state.loading ? '다른 도서관도 살펴보고 있어요' : incomplete ? '아직 책이 없는지 확정할 수 없어요' : '이 검색어로 찾은 책이 없어요'));
-      empty.append(el('p', '', activeFilter ? '다른 이용 상태나 검색처를 선택해 보세요.' : state.loading ? '먼저 확인한 검색처에는 결과가 없습니다. 도착하는 대로 보여드릴게요.' : incomplete ? '일부 검색처를 확인하지 못했습니다. 다시 검색하거나 해당 도서관에서 직접 찾아보세요.' : '제목의 띄어쓰기를 바꾸거나, 핵심 단어만 입력해 보세요.'));
-      if (activeFilter) empty.append(button('필터 초기화', 'button', resetFilters));
-      else if (!state.loading) empty.append(button(incomplete ? '다시 검색' : '검색어 바꾸기', 'button', incomplete ? () => search(state.query) : () => { $('#q').focus(); $('#q').select(); }));
+      const incompleteIds = incompleteProviderIds(state.config, state.providers, state.filters);
+      const incomplete = incompleteIds.length || (!state.config.length && (state.error || state.stopped));
+      empty.append(el('h3', '', state.loading ? '이 조건의 검색처를 살펴보고 있어요' : incomplete ? activeFilter ? '이 조건의 검색처를 확인하지 못했어요' : '아직 책이 없는지 확정할 수 없어요' : activeFilter ? '선택한 조건에 맞는 책이 없어요' : '이 검색어로 찾은 책이 없어요'));
+      empty.append(el('p', '', state.loading ? '도착하는 검색 결과부터 보여드릴게요.' : incomplete ? '연결되지 않은 검색처에 책이 있을 수 있어요. 해당 검색처만 다시 확인할 수 있습니다.' : activeFilter ? '다른 이용 상태나 검색처를 선택해 보세요.' : '제목의 띄어쓰기를 바꾸거나, 핵심 단어만 입력해 보세요.'));
+      const actions = el('div', 'empty-actions');
+      if (incompleteIds.length && !state.loading) {
+        actions.append(button('확인 못한 검색처 다시 확인', 'button button-primary', () => retrySources(incompleteIds)));
+        const provider = state.config.find(p => p.id === incompleteIds[0]);
+        actions.append(link(`${provider.name}에서 직접 검색`, provider.baseURL.replace('{searchTerm}', encodeURIComponent(state.query)), 'text-button'));
+      }
+      if (activeFilter) actions.append(button('필터 초기화', 'button', resetFilters));
+      else if (!state.loading && !incompleteIds.length) actions.append(button('검색어 바꾸기', 'button', () => { $('#q').focus(); $('#q').select(); }));
+      empty.append(actions);
       wanted.push(empty);
     }
   } else {
     for (const group of groups.slice(0, state.limit)) {
-      const signature = JSON.stringify(group.entries.map(e => [e.key, e.book.decision?.state]));
+      const signature = JSON.stringify(group.entries.map(e => [e.key, e.book.decision?.state, e.book.rawStatusText, e.book.availableCount, e.book.reservationCount, e.provider.checkedAt]));
       const previous = oldCards.get(group.key);
       const card = previous?.dataset.signature === signature ? previous : renderBook(group);
       card.dataset.key = group.key;
@@ -370,14 +464,18 @@ function renderBook(group) {
   const cover = el('div', 'book-cover');
   cover.setAttribute('aria-hidden', 'true');
   cover.append(svg('book'));
-  const imageURL = group.entries.map(e => safeURL(e.book.coverImageURL)).find(Boolean);
-  if (imageURL) {
+  const imageURLs = [...new Set(group.entries.map(e => safeURL(e.book.coverImageURL)).filter(Boolean))];
+  if (imageURLs.length) {
     const image = el('img');
     image.alt = '';
     image.loading = 'lazy';
     image.decoding = 'async';
-    image.src = imageURL;
-    image.addEventListener('error', () => image.remove(), { once: true });
+    image.referrerPolicy = 'no-referrer';
+    image.src = imageURLs.shift();
+    image.addEventListener('error', () => {
+      if (imageURLs.length) image.src = imageURLs.shift();
+      else image.remove();
+    });
     cover.append(image);
   }
   const heading = el('div', 'book-heading');
@@ -404,11 +502,17 @@ function renderBook(group) {
     const summary = el('summary', '', `이용 정보 ${group.entries.length - 3}개 더 보기`);
     summary.dataset.focusKey = `more:${group.key}`;
     const remaining = el('div', 'book-rows');
-    ordered.slice(3).forEach(entry => remaining.append(renderEntry(entry, group.title)));
+    let populated = false;
+    const populate = () => {
+      if (populated) return;
+      ordered.slice(3).forEach(entry => remaining.append(renderEntry(entry, group.title)));
+      populated = true;
+    };
+    if (details.open) populate();
     details.append(summary, remaining);
     details.addEventListener('toggle', () => {
       if (!details.isConnected) return;
-      if (details.open) state.expanded.add(group.key); else state.expanded.delete(group.key);
+      if (details.open) { populate(); state.expanded.add(group.key); } else state.expanded.delete(group.key);
       summary.textContent = details.open ? '추가 이용 정보 접기' : `이용 정보 ${group.entries.length - 3}개 더 보기`;
     });
     card.append(details);
@@ -471,7 +575,11 @@ async function loadConfig() {
     state.config = [...(data.libraryProviders || []), ...(data.externalProviders || []), ...(data.physicalProviders || [])];
     $('#source-count').textContent = state.config.length;
     $('#library-count').textContent = `${(data.libraryProviders || []).length}곳`;
-    const selected = $('#provider-filter').value;
+    if (state.filters.provider !== 'all' && !state.config.some(p => p.id === state.filters.provider)) {
+      state.filters.provider = 'all';
+      syncURL('replace');
+    }
+    const selected = state.filters.provider;
     $('#provider-filter').replaceChildren(new Option('모든 검색처', 'all'));
     state.config.forEach(provider => $('#provider-filter').append(new Option(provider.name, provider.id)));
     $('#provider-filter').value = selected;
@@ -504,7 +612,7 @@ function renderSources() {
       anchor.dataset.focusKey = `source:${config.id}`;
       row.append(anchor);
       const issue = result && sourceIssues([result]).length;
-      const status = !state.query ? (config.libraryModel === 'mixed' ? '대출형·구독형' : config.libraryModel === 'subscription' ? '구독형' : config.physicalProvider ? '실물 대출' : '대출형')
+      const status = state.loading && state.retrying.has(config.id) ? '다시 확인 중' : !state.query ? (config.libraryModel === 'mixed' ? '대출형·구독형' : config.libraryModel === 'subscription' ? '구독형' : config.physicalProvider ? '실물 대출' : '대출형')
         : !result ? state.loading ? '확인 중' : '확인하지 못함'
           : !result.ok || !result.searchable ? '연결 오류'
             : result.partialResults ? '일부 확인'
@@ -513,6 +621,17 @@ function renderSources() {
       if (issue) row.append(el('p', 'source-warning', result.partialResults
         ? `${result.totalResults ?? '?'}개 중 ${result.checkedResults ?? result.books?.length ?? 0}개 확인. ${result.warning || '전체 결과를 확인하지 못했습니다.'}`
         : '연결되지 않아 소장 여부를 확인할 수 없습니다. 도서관에서 직접 검색해 주세요.'));
+      if (state.query && !state.loading && (!result || issue)) {
+        const retry = button('이 검색처 다시 확인', 'text-button source-retry', () => retrySources([config.id]));
+        retry.dataset.focusKey = `retry:${config.id}`;
+        retry.setAttribute('aria-label', `${config.name} 다시 확인`);
+        row.append(retry);
+      }
+      if (result?.checkedAt) {
+        const checked = el('time', 'source-checked', `${new Date(result.checkedAt).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' })} 확인${result.cacheHit ? ' · 최근 결과' : ''}`);
+        checked.dateTime = result.checkedAt;
+        row.append(checked);
+      }
       section.append(row);
     }
     list.append(section);
@@ -523,4 +642,4 @@ function renderSources() {
 renderSuggestions();
 loadConfig();
 const initialQuery = new URL(location.href).searchParams.get('q')?.trim();
-if (initialQuery) search(initialQuery, false);
+if (initialQuery) search(initialQuery, { historyMode: 'replace', view: readSearchView(location.href) });

@@ -4,7 +4,7 @@
   --paper: #ffffff;
   --ink: #182435;
   --secondary: #536174;
-  --muted: #687587;
+  --muted: #5e6c7e;
   --line: #e0e5ec;
   --blue: #2455cf;
   --blue-dark: #1942aa;
@@ -39,6 +39,7 @@ svg { width: 20px; height: 20px; flex-shrink: 0; stroke: currentColor; stroke-wi
 .site-header { background: var(--paper); border-bottom: 1px solid var(--line); }
 .header-inner { max-width: 1184px; height: 80px; margin: auto; padding: 0 32px; display: flex; align-items: center; justify-content: space-between; gap: 20px; }
 .brand { display: inline-flex; gap: 12px; align-items: center; white-space: nowrap; }
+.brand { min-height: 44px; }
 .brand-mark { width: 40px; height: 40px; object-fit: contain; flex-shrink: 0; }
 .brand strong { font-size: 21px; letter-spacing: -1px; font-weight: 800; }
 .brand-caption { color: var(--muted); font-size: 12px; border-left: 1px solid var(--line); padding-left: 16px; margin-left: 4px; }
@@ -63,6 +64,8 @@ h1 { font-size: clamp(28px, 3.2vw, 38px); line-height: 1.35; letter-spacing: -1.
 .search-form input { width: 100%; min-width: 0; flex: 1; height: 48px; border: 0; background: transparent; outline: none; font-size: 17px; font-weight: 500; }
 .search-form input::placeholder { color: var(--muted); font-weight: 400; }
 .search-form input::-webkit-search-cancel-button { -webkit-appearance: none; }
+.query-error { margin-top: 8px; color: var(--amber); font-size: 13px; }
+.search-form:has([aria-invalid="true"]) { border-color: var(--amber); }
 .search-submit { height: 48px; min-width: 116px; margin-left: 6px; }
 .icon-button { height: 44px; width: 44px; display: inline-flex; align-items: center; justify-content: center; border-radius: 8px; color: var(--secondary); flex-shrink: 0; }
 .icon-button:hover { background: #e9edf3; color: var(--ink); }
@@ -70,6 +73,7 @@ h1 { font-size: clamp(28px, 3.2vw, 38px); line-height: 1.35; letter-spacing: -1.
 .suggestions-label { color: var(--muted); flex-shrink: 0; }
 .suggestion-items { display: flex; align-items: center; flex-wrap: wrap; column-gap: 19px; min-width: 0; }
 .suggestion-items button { color: var(--secondary); padding: 10px 0; min-height: 44px; font-size: 12px; }
+.suggestion-items button { min-width: 32px; }
 .suggestion-items button:hover { color: var(--blue); text-decoration: underline; text-underline-offset: 4px; }
 .history-clear { color: var(--muted); font-size: 11px; min-height: 44px; margin-left: auto; flex-shrink: 0; }
 .history-clear:hover { color: var(--ink); }
@@ -94,6 +98,13 @@ h1 { font-size: clamp(28px, 3.2vw, 38px); line-height: 1.35; letter-spacing: -1.
 .status-dot.interrupted { background: var(--amber); }
 .text-button { min-height: 44px; padding: 8px 0; color: var(--secondary); font-size: 12px; text-decoration: underline; text-decoration-color: #bcc5d1; text-underline-offset: 4px; }
 .text-button:hover { color: var(--blue); text-decoration-color: var(--blue); }
+button:disabled { cursor: wait; color: var(--muted); opacity: .7; }
+.search-actions, .results-actions, .warning-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 14px; }
+.results-actions { flex-shrink: 0; }
+.cache-note { margin-top: 10px; color: var(--secondary); font-size: 12px; }
+.share-fallback { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin-bottom: 16px; padding: 16px; border: 1px solid var(--line); border-radius: 10px; background: white; }
+.share-fallback label { width: 100%; font-size: 13px; }
+.share-fallback input { flex: 1; min-width: 0; width: 100%; min-height: 44px; border: 1px solid var(--line); border-radius: 6px; padding: 8px; font-size: 13px; }
 #coverage-status { flex-shrink: 0; }
 .progress-track { height: 2px; background: var(--line); position: absolute; bottom: 0; left: 0; right: 0; overflow: hidden; }
 .progress-track span { display: block; background: var(--blue); height: 100%; width: 0; transition: width .25s ease; }
@@ -154,7 +165,7 @@ select { min-height: 44px; max-width: 100%; border: 1px solid var(--line); borde
 .availability.borrow_now { color: var(--green); }
 .availability.reserve { color: var(--amber); }
 .status-detail { color: var(--muted); font-size: 10px; }
-.book-link { border: 1px solid var(--line); padding: 8px 12px; min-height: 40px; min-width: 99px; font-size: 12px; font-weight: 600; border-radius: 7px; text-align: center; display: inline-flex; align-items: center; justify-content: center; gap: 6px; }
+.book-link { border: 1px solid var(--line); padding: 8px 12px; min-height: 44px; min-width: 99px; font-size: 12px; font-weight: 600; border-radius: 7px; text-align: center; display: inline-flex; align-items: center; justify-content: center; gap: 6px; }
 .book-link:hover { border-color: #a8bbe5; background: var(--blue-wash); color: var(--blue); }
 .book-link svg { width: 14px; height: 14px; }
 .more-locations summary { list-style: none; min-height: 48px; padding: 13px 26px; color: var(--secondary); background: #fbfcfe; border-top: 1px solid var(--line); font-size: 12px; text-align: center; }
@@ -168,6 +179,7 @@ select { min-height: 44px; max-width: 100%; border: 1px solid var(--line); borde
 .empty-state h3 { font-size: 19px; letter-spacing: -.5px; }
 .empty-state p { color: var(--muted); font-size: 13px; margin: 8px auto 18px; max-width: 460px; }
 .empty-state .button { border: 1px solid var(--line); }
+.empty-actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: center; gap: 12px; }
 .skeleton { height: 191px; border: 1px solid var(--line); border-radius: var(--radius); background: white; padding: 26px; display: flex; gap: 22px; }
 .skeleton-cover { width: 76px; height: 109px; background: #edf0f4; border-radius: 4px; }
 .skeleton-copy { flex: 1; }
@@ -195,6 +207,8 @@ body:has(dialog[open]) { overflow: hidden; }
 .source-state.is-ok { color: var(--green); }
 .source-state.is-warning { color: var(--amber); }
 .source-warning { grid-column: 1 / -1; font-size: 11px; color: var(--amber); padding-bottom: 3px; }
+.source-retry { grid-column: 1; justify-self: start; color: var(--blue); }
+.source-checked { grid-column: 1 / -1; color: var(--muted); font-size: 12px; }
 .dialog-footnote { margin-top: 24px; font-size: 11px; color: var(--muted); background: var(--bg); padding: 14px; border-radius: 8px; }
 @media (max-width: 1000px) {
   .welcome { grid-template-columns: .7fr 1.3fr; gap: 24px; }
@@ -222,7 +236,7 @@ body:has(dialog[open]) { overflow: hidden; }
   .clear-search { width: 44px; }
   .search-suggestions { gap: 13px; align-items: baseline; }
   .suggestion-items { column-gap: 14px; }
-  .suggestion-items button { font-size: 11px; }
+  .suggestion-items button { font-size: 12px; }
   .welcome { grid-template-columns: 1fr; gap: 22px; padding: 27px 0 35px; }
   .welcome-heading { padding: 0; }
   .welcome h2 { font-size: 20px; }
@@ -242,7 +256,8 @@ body:has(dialog[open]) { overflow: hidden; }
   .recommendation h3 { font-size: 17px; }
   .recommendation-detail { font-size: 11px; }
   .recommendation .button { width: 100%; margin-top: 1px; }
-  .results-heading { margin: 24px 0 17px; gap: 8px; }
+  .results-heading { margin: 24px 0 17px; gap: 8px; flex-wrap: wrap; }
+  .results-actions { margin-left: auto; gap: 12px; }
   .results-heading h2 { font-size: 20px; letter-spacing: -.6px; }
   .results-heading p { font-size: 11px; }
   .sort-label select { font-size: 11px; padding-left: 0; }
@@ -261,26 +276,29 @@ body:has(dialog[open]) { overflow: hidden; }
   .book-heading h3 { font-size: 18px; }
   .book-labels { gap: 4px; }
   .tag { font-size: 9px; padding: 2px 5px; }
-  .book-summary { font-size: 11px; }
+  .book-summary { font-size: 12px; }
   .book-rows { margin: 0 18px; }
   .availability-row { grid-template-columns: minmax(0,1fr) auto; gap: 9px 14px; padding: 17px 0; }
   .location { grid-column: 1 / -1; }
   .location-name { font-size: 13px; }
-  .location-detail, .copy-detail { font-size: 11px; }
+  .location-detail, .copy-detail { font-size: 12px; }
   .location-status { flex-direction: row; flex-wrap: wrap; gap: 4px 8px; align-items: center; }
-  .availability { font-size: 11px; }
+  .availability { font-size: 12px; }
+  .status-detail { font-size: 12px; }
+  .tag { font-size: 11px; }
   .book-link { min-height: 44px; min-width: 96px; font-size: 11px; }
   .more-locations summary { font-size: 11px; padding: 14px 18px; }
   .empty-state { padding: 42px 20px; }
   .empty-state h3 { font-size: 18px; }
   .search-warning { font-size: 12px; align-items: flex-start; flex-direction: column; gap: 0; padding: 15px; }
   .site-footer { margin: 0 20px; padding: 23px 0; min-height: 140px; align-items: flex-start; flex-wrap: wrap; gap: 6px 16px; }
-  .site-footer p { order: 3; width: 100%; font-size: 10px; }
-  .site-footer .text-button { padding: 0; min-height: 26px; }
+  .site-footer p { order: 3; width: 100%; font-size: 12px; }
+  .site-footer .text-button { padding: 0; min-height: 44px; }
   .sources-dialog { padding: 22px; border-radius: 16px; }
   .source-row { gap: 6px 12px; }
   .source-row a { font-size: 12px; }
-  .source-state { font-size: 10px; }
+  .source-state { font-size: 12px; }
+  .source-warning { font-size: 12px; }
 }
 @media (max-width: 420px) {
   .mobile-break { display: block; }

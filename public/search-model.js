@@ -87,6 +87,41 @@ export function sourceIssues(providers) {
   return providers.filter(p => !p.ok || !p.searchable || p.partialResults);
 }
 
+export function incompleteProviderIds(config, results, filters = { format: 'all', provider: 'all' }) {
+  return config.filter(provider =>
+    (filters.provider === 'all' || filters.provider === provider.id) &&
+    (filters.format === 'all' || (filters.format === 'physical' ? provider.physicalProvider : !provider.physicalProvider))
+  ).filter(provider => {
+    const result = results.find(item => item.providerId === provider.id);
+    return !result || sourceIssues([result]).length;
+  }).map(provider => provider.id);
+}
+
+export function readSearchView(value) {
+  const params = new URL(value).searchParams;
+  const allowed = (key, values, fallback) => values.includes(params.get(key)) ? params.get(key) : fallback;
+  const provider = params.get('provider') || 'all';
+  return {
+    query: (params.get('q') || '').trim(),
+    filters: {
+      format: allowed('format', ['all', 'ebook', 'audio', 'physical'], 'all'),
+      status: allowed('status', ['all', 'borrow_now', 'reserve', 'unknown', 'unavailable'], 'all'),
+      provider: /^[a-z0-9-]{1,64}$/.test(provider) ? provider : 'all'
+    },
+    sort: allowed('sort', ['relevance', 'available'], 'relevance')
+  };
+}
+
+export function searchViewURL(value, { query, filters, sort }) {
+  const url = new URL(value);
+  const values = { q: query, format: filters.format, status: filters.status, provider: filters.provider, sort };
+  for (const [key, item] of Object.entries(values)) {
+    if (!query || !item || item === 'all' || item === 'relevance') url.searchParams.delete(key);
+    else url.searchParams.set(key, item);
+  }
+  return url.href;
+}
+
 export function stateLabel(entry) {
   const state = entry.book.decision?.state;
   if (state === 'borrow_now') {

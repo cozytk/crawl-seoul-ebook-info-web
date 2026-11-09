@@ -1,6 +1,7 @@
 import express from "express";
 import { collectSearchPages } from "./lib/search-pagination.js";
 import { withProviderRetry } from "./lib/provider-retry.js";
+import { createSearchRouter } from "./lib/search-runtime.js";
 import { load } from "cheerio";
 import iconv from "iconv-lite";
 import path from "node:path";
@@ -83,7 +84,6 @@ const RATE_LIMIT_WINDOW_MS = Number(process.env.RATE_LIMIT_WINDOW_MS || 60000);
 const RATE_LIMIT_MAX_REQUESTS = Number(process.env.RATE_LIMIT_MAX_REQUESTS || 20);
 const INVALID_CONTROL_CHAR_PATTERN = /[\u0000-\u001F\u007F]/;
 
-const searchCache = new Map();
 const searchRateLimitBuckets = new Map();
 
 app.use(express.static(path.join(__dirname, "public")));
@@ -107,88 +107,14 @@ app.get("/api/config/providers", (_, res) => {
   });
 });
 
-app.get("/api/search", async (req, res) => {
-  const query = (req.query.q || "").toString().trim();
-  const validationError = validateQuery(query);
-  if (validationError) {
-    return res.status(400).json({ error: validationError });
-  }
-
-  if (!consumeSearchRateLimit(req.ip || "unknown")) {
-    return res.status(429).json({
-      error: "요청이 너무 많습니다. 잠시 후 다시 시도해 주세요."
-    });
-  }
-
-  const cacheKey = normalizeQueryForCache(query);
-  const cached = getCachedSearchPayload(cacheKey);
-  if (cached) {
-    return res.json({ ...cached, cacheHit: true });
-  }
-
-  const libraryResults = await Promise.all(
-    searchProviders.map((provider) => searchProvider(provider, query))
-  );
-
-  const flow = buildSearchFlow(query, libraryResults);
-
-  const payload = {
-    query,
-    searchedAt: new Date().toISOString(),
-    libraryResults,
-    flow
-  };
-
-  setCachedSearchPayload(cacheKey, payload);
-
-  return res.json(payload);
-});
-
-app.get("/api/search/stream", async (req, res) => {
-  const query = (req.query.q || "").toString().trim();
-  const validationError = validateQuery(query);
-  if (validationError) {
-    return res.status(400).json({ error: validationError });
-  }
-
-  if (!consumeSearchRateLimit(req.ip || "unknown")) {
-    return res.status(429).json({
-      error: "요청이 너무 많습니다. 잠시 후 다시 시도해 주세요."
-    });
-  }
-
-  res.setHeader("Content-Type", "text/event-stream; charset=utf-8");
-  res.setHeader("Cache-Control", "no-cache, no-transform");
-  res.setHeader("Connection", "keep-alive");
-  res.flushHeaders?.();
-
-  const writeEvent = (type, data) => {
-    res.write(`event: ${type}\n`);
-    res.write(`data: ${JSON.stringify(data)}\n\n`);
-  };
-
-  writeEvent("start", {
-    query,
-    searchedAt: new Date().toISOString(),
-    totalProviders: searchProviders.length
-  });
-
-  const libraryResults = await Promise.all(
-    searchProviders.map(async (provider) => {
-      const result = await searchProvider(provider, query);
-      writeEvent("provider", result);
-      return result;
-    })
-  );
-
-  writeEvent("flow", buildSearchFlow(query, libraryResults));
-  writeEvent("done", {
-    query,
-    searchedAt: new Date().toISOString(),
-    libraryResults
-  });
-  res.end();
-});
+app.use("/api/search", createSearchRouter({
+  providers: searchProviders,
+  search: searchProvider,
+  buildFlow: buildSearchFlow,
+  validateQuery,
+  consumeRateLimit: consumeSearchRateLimit,
+  ttlMs: SEARCH_CACHE_TTL_MS
+}));
 
 function buildSearchFlow(query, libraryResults) {
   const millieResult = libraryResults.find((result) => result.providerId === "millie");
@@ -248,12 +174,14 @@ if (!process.env.VERCEL && process.argv[1] === __filename) {
 
 export default app;
 
-async function searchProvider(provider, query) {
+async function searchProvider(provider, query, { signal: parentSignal } = {}) {
   const searchURL = constructURL(provider, query);
-  const controller = new AbortController();
-  const timeoutId = setTimeout(() => controller.abort(), PROVIDER_FETCH_TIMEOUT_MS);
+  const timeoutController = new AbortController();
+  const controller = { signal: parentSignal ? AbortSignal.any([parentSignal, timeoutController.signal]) : timeoutController.signal };
+  const timeoutId = setTimeout(() => timeoutController.abort(), PROVIDER_FETCH_TIMEOUT_MS);
 
   try {
+    controller.signal.throwIfAborted();
     let result;
     if (provider.id === "seoul") {
       result = await fetchSeoulBooks(provider, query, controller.signal);
@@ -312,7 +240,7 @@ async function searchProvider(provider, query) {
     };
   } catch (error) {
     const message = normalizeProviderError(error);
-    if (process.env.VERCEL) {
+    if (process.env.VERCEL && !parentSignal?.aborted) {
       console.warn("Provider search failed", {
         providerId: provider.id,
         code: error.cause?.code || error.code || error.name,
@@ -1301,44 +1229,18 @@ function normalizeQueryForCache(query) {
   return query.normalize("NFKC").toLowerCase().trim().replace(/\s+/g, " ");
 }
 
-function getCachedSearchPayload(cacheKey) {
-  const entry = searchCache.get(cacheKey);
-  if (!entry) {
-    return null;
-  }
-
-  if (entry.expiresAt <= Date.now()) {
-    searchCache.delete(cacheKey);
-    return null;
-  }
-
-  return entry.payload;
-}
-
-function setCachedSearchPayload(cacheKey, payload) {
-  searchCache.set(cacheKey, {
-    expiresAt: Date.now() + SEARCH_CACHE_TTL_MS,
-    payload
-  });
-
-  if (searchCache.size < 300) {
-    return;
-  }
-
-  const now = Date.now();
-  for (const [key, entry] of searchCache.entries()) {
-    if (entry.expiresAt <= now) {
-      searchCache.delete(key);
-    }
-  }
-}
-
 function consumeSearchRateLimit(clientKey) {
   const now = Date.now();
   const key = clientKey || "unknown";
   const bucket = searchRateLimitBuckets.get(key);
 
   if (!bucket || bucket.expiresAt <= now) {
+    if (searchRateLimitBuckets.size >= 1000) {
+      for (const [bucketKey, entry] of searchRateLimitBuckets) {
+        if (entry.expiresAt <= now) searchRateLimitBuckets.delete(bucketKey);
+      }
+      if (searchRateLimitBuckets.size >= 1000) searchRateLimitBuckets.delete(searchRateLimitBuckets.keys().next().value);
+    }
     searchRateLimitBuckets.set(key, {
       count: 1,
       expiresAt: now + RATE_LIMIT_WINDOW_MS

@@ -12,6 +12,7 @@
     <link rel="stylesheet" href="/styles.css?v=20260912-search" />
   </head>
   <body>
+    <noscript><p class="search-warning">통합 검색에는 자바스크립트가 필요합니다. 브라우저 설정에서 자바스크립트를 켜고 다시 접속해 주세요.</p></noscript>
     <a class="skip-link" href="#q">검색으로 건너뛰기</a>
     <header class="site-header">
       <div class="header-inner">
@@ -36,10 +37,11 @@
         <form id="search-form" class="search-form" role="search">
           <label for="q" class="sr-only">책 제목 또는 키워드</label>
           <svg class="search-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true"><circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 4 4"/></svg>
-          <input id="q" name="q" type="search" placeholder="어떤 책을 찾고 있나요?" autocomplete="off" enterkeyhint="search" maxlength="80" required />
+          <input id="q" name="q" type="search" placeholder="어떤 책을 찾고 있나요?" autocomplete="off" enterkeyhint="search" maxlength="80" aria-describedby="query-error" required />
           <button id="clear-search" class="icon-button clear-search" type="button" aria-label="검색어 지우기" hidden><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="m7 7 10 10M17 7 7 17"/></svg></button>
           <button class="button button-primary search-submit" type="submit"><span>책 찾기</span><svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M5 12h14m-5-5 5 5-5 5"/></svg></button>
         </form>
+        <p id="query-error" class="query-error" role="alert" hidden></p>
         <div id="search-suggestions" class="search-suggestions" aria-label="검색어 제안"></div>
       </section>
 
@@ -55,12 +57,14 @@
       <section id="search-results" class="search-results" aria-labelledby="results-title" hidden>
         <div class="search-status">
           <div class="status-copy"><span id="status-dot" class="status-dot" aria-hidden="true"></span><p id="progress-label"></p><button id="cancel-search" class="text-button" type="button" hidden>검색 중지</button></div>
-          <button id="coverage-status" class="text-button" data-open-sources type="button">검색처 상태 보기 <span aria-hidden="true">↗</span></button>
-          <div class="progress-track" aria-hidden="true"><span id="search-progress"></span></div>
+          <div class="search-actions"><button id="refresh-search" class="text-button" type="button">새로 확인</button><button id="coverage-status" class="text-button" data-open-sources type="button">검색처 상태 보기 <span aria-hidden="true">↗</span></button></div>
+          <div id="search-progressbar" class="progress-track" role="progressbar" aria-label="검색처 확인 진행률" aria-valuemin="0" aria-valuemax="16" aria-valuenow="0"><span id="search-progress"></span></div>
         </div>
+        <p id="cache-note" class="cache-note" hidden>최근 확인한 결과를 빠르게 불러왔어요. 최신 대출 상태는 ‘새로 확인’을 눌러 확인하세요.</p>
         <div id="search-warning" class="search-warning" hidden></div>
         <section id="recommendation" class="recommendation" aria-label="추천 이용 경로" hidden></section>
-        <div class="results-heading"><div><h2 id="results-title" tabindex="-1">검색 결과</h2><p id="result-meta"></p></div><label class="sort-label"><span class="sr-only">결과 정렬</span><select id="sort-order"><option value="relevance">관련도순</option><option value="available">이용 가능순</option></select></label></div>
+        <div class="results-heading"><div><h2 id="results-title" tabindex="-1">검색 결과</h2><p id="result-meta"></p></div><div class="results-actions"><button id="share-search" class="text-button" type="button" aria-label="검색어와 필터가 담긴 링크 복사">검색 공유</button><label class="sort-label"><span class="sr-only">결과 정렬</span><select id="sort-order"><option value="relevance">관련도순</option><option value="available">이용 가능순</option></select></label></div></div>
+        <div id="share-fallback" class="share-fallback" hidden><label for="share-url">검색 링크를 선택해 복사하세요.</label><input id="share-url" type="url" readonly /><button id="close-share" class="text-button" type="button">닫기</button></div>
         <div id="filter-bar" class="filter-bar">
           <div id="format-filters" class="format-filters" role="group" aria-label="자료 유형">
             <button type="button" data-format="all" aria-pressed="true">전체 <span>0</span></button>
