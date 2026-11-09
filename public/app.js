@@ -1,1192 +1,526 @@
-const form = document.querySelector("#search-form");
-const queryInput = document.querySelector("#q");
-const routePanel = document.querySelector("#route-panel");
-const resultEl = document.querySelector("#evidence-feed");
-const rowTemplate = document.querySelector("#copy-line-template");
-const providerTemplate = document.querySelector("#source-block-template");
-const resultMeta = document.querySelector("#result-meta");
-const searchTime = document.querySelector("#search-time");
-const supportedCountEl = document.querySelector("#supported-count");
-const supportedLibrariesEl = document.querySelector("#supported-libraries");
-const searchButton = form.querySelector('button[type="submit"]');
-const sharedCoverURLByKey = new Map();
+import { entriesFrom, filterEntries, formatOf, groupEntries, bestEntry, previewEntries, sourceIssues, stateLabel } from './search-model.js';
 
-let activeSearchController = null;
-let activeSearchRequestId = 0;
+const $ = selector => document.querySelector(selector);
+const icons = {
+  arrow: '<path d="M7 17 17 7M7 7h10v10"/>',
+  book: '<path d="M3 5h6c2 0 3 1 3 3v13c0-2-1-3-3-3H3V5Zm18 0h-6c-2 0-3 1-3 3v13c0-2 1-3 3-3h6V5Z"/>',
+  search: '<circle cx="10.5" cy="10.5" r="6.5"/><path d="m16 16 4 4"/>',
+  check: '<path d="m5 12 4 4L19 6"/>',
+  clock: '<circle cx="12" cy="12" r="8"/><path d="M12 7v5l3 2"/>'
+};
+const formatLabels = { ebook: '전자책', audio: '오디오북', physical: '실물도서' };
+const defaults = () => ({ format: 'all', status: 'all', provider: 'all' });
+const state = {
+  query: '', providers: [], config: [], total: 0, loading: false, complete: false,
+  error: '', stopped: false, filters: defaults(), sort: 'relevance', limit: 10,
+  expanded: new Set(), requestId: 0, controller: null, searchedAt: ''
+};
+let recent = readRecent();
 
-init();
-
-async function init() {
-  renderRoutePanelPlaceholder();
-  await loadSupportedLibraries();
+function el(tag, className, text) {
+  const node = document.createElement(tag);
+  if (className) node.className = className;
+  if (text !== undefined) node.textContent = text;
+  return node;
+}
+function svg(name) {
+  const node = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+  node.setAttribute('viewBox', '0 0 24 24');
+  node.setAttribute('fill', 'none');
+  node.setAttribute('aria-hidden', 'true');
+  node.innerHTML = icons[name];
+  return node;
+}
+function button(text, className, action) {
+  const node = el('button', className, text);
+  node.type = 'button';
+  node.addEventListener('click', action);
+  return node;
+}
+function safeURL(value) {
+  try {
+    const url = new URL(value);
+    return ['https:', 'http:'].includes(url.protocol) ? url.href : '';
+  } catch { return ''; }
+}
+function link(text, url, className = '', accessibleName = '') {
+  const node = el('a', className, text);
+  const href = safeURL(url);
+  if (href) node.href = href;
+  node.target = '_blank';
+  node.rel = 'noopener noreferrer';
+  if (accessibleName) node.setAttribute('aria-label', `${accessibleName} (새 창)`);
+  else node.setAttribute('aria-label', `${text} (새 창)`);
+  node.append(svg('arrow'));
+  return node;
+}
+function announce(message) { $('#announcement').textContent = message; }
+function readRecent() {
+  try {
+    const items = JSON.parse(localStorage.getItem('seoul-library:recent') || '[]');
+    return Array.isArray(items) ? items.filter(x => typeof x === 'string' && x.length <= 80).slice(0, 4) : [];
+  } catch { return []; }
+}
+function saveRecent(query) {
+  if (query.length > 80) return;
+  recent = [query, ...recent.filter(x => x !== query)].slice(0, 4);
+  try { localStorage.setItem('seoul-library:recent', JSON.stringify(recent)); } catch { /* Search works without storage. */ }
+  renderSuggestions();
+}
+function renderSuggestions() {
+  const container = $('#search-suggestions');
+  container.replaceChildren(el('span', 'suggestions-label', recent.length ? '최근 검색' : '이런 책은 어때요'));
+  const items = el('div', 'suggestion-items');
+  for (const query of (recent.length ? recent.slice(0, 3) : ['불편한 편의점', '소년이 온다', '쇳돌'])) {
+    items.append(button(query, '', () => { $('#q').value = query; search(query); }));
+  }
+  container.append(items);
+  if (recent.length) container.append(button('지우기', 'history-clear', () => {
+    recent = [];
+    try { localStorage.removeItem('seoul-library:recent'); } catch { /* Optional storage. */ }
+    renderSuggestions();
+    $('#q').focus();
+    announce('최근 검색 기록을 지웠습니다.');
+  }));
 }
 
-form.addEventListener("submit", async (event) => {
+$('#search-form').addEventListener('submit', event => {
   event.preventDefault();
-  const query = queryInput.value.trim();
-  if (!query) {
-    return;
-  }
-
-  if (activeSearchController) {
-    activeSearchController.abort();
-  }
-
-  const controller = new AbortController();
-  const requestId = ++activeSearchRequestId;
-  activeSearchController = controller;
-
-  renderRoutePanelLoading(query);
-  renderResultNotice("검색 중입니다. 도서관 페이지를 순차 분석하고 있어요.", "evidence-loading");
-  resultEl.setAttribute("aria-busy", "true");
-  resultMeta.textContent = `"${query}" 검색 중...`;
-  searchTime.textContent = "";
-  setSearchPending(true);
-
-  try {
-    if (window.ReadableStream) {
-      await streamSearchResults(query, controller.signal, requestId);
-    } else {
-      const response = await fetch(`/api/search?q=${encodeURIComponent(query)}`, {
-        signal: controller.signal
-      });
-      const data = await response.json();
-
-      if (requestId !== activeSearchRequestId) {
-        return;
-      }
-
-      if (!response.ok) {
-        throw new Error(data.error || "검색 실패");
-      }
-
-      renderResults(data.libraryResults, {
-        isComplete: true,
-        completedProviders: data.libraryResults.length,
-        totalProviders: data.libraryResults.length
-      });
-      resultMeta.textContent = `"${data.query}" 기준 ${data.libraryResults.length}개 검색처 분석 완료`;
-      searchTime.textContent = formatSearchedAt(data.searchedAt);
-    }
-  } catch (error) {
-    if (requestId !== activeSearchRequestId) {
-      return;
-    }
-
-    if (error?.name === "AbortError") {
-      return;
-    }
-
-    const message = error instanceof Error ? error.message : "알 수 없는 오류";
-    renderRoutePanelError(message);
-    renderResultNotice(`오류: ${message}`, "evidence-error");
-    resultMeta.textContent = "오류가 발생했습니다.";
-    searchTime.textContent = "";
-  } finally {
-    if (requestId === activeSearchRequestId) {
-      activeSearchController = null;
-      setSearchPending(false);
-      resultEl.setAttribute("aria-busy", "false");
-    }
+  const query = $('#q').value.trim();
+  if (query) search(query);
+});
+$('#q').addEventListener('input', () => { $('#clear-search').hidden = !$('#q').value; });
+$('#clear-search').addEventListener('click', () => {
+  $('#q').value = '';
+  $('#clear-search').hidden = true;
+  $('#q').focus();
+});
+$('#cancel-search').addEventListener('click', () => {
+  state.requestId++;
+  state.controller?.abort();
+  state.controller = null;
+  state.loading = false;
+  state.stopped = true;
+  render();
+  announce('검색을 중지했습니다. 도착한 결과는 계속 확인할 수 있습니다.');
+  $('#q').focus();
+});
+for (const trigger of document.querySelectorAll('[data-open-sources]')) trigger.addEventListener('click', openSources);
+$('#close-sources').addEventListener('click', () => $('#sources-dialog').close());
+$('#sources-dialog').addEventListener('click', event => {
+  if (event.target !== $('#sources-dialog')) return;
+  const rect = event.target.getBoundingClientRect();
+  if (event.clientX < rect.left || event.clientX > rect.right || event.clientY < rect.top || event.clientY > rect.bottom) event.target.close();
+});
+$('#format-filters').addEventListener('click', event => {
+  const target = event.target.closest('[data-format]');
+  if (!target) return;
+  state.filters.format = target.dataset.format;
+  resetPageAndRender();
+});
+$('#status-filter').addEventListener('change', event => { state.filters.status = event.target.value; resetPageAndRender(); });
+$('#provider-filter').addEventListener('change', event => { state.filters.provider = event.target.value; resetPageAndRender(); });
+$('#sort-order').addEventListener('change', event => { state.sort = event.target.value; resetPageAndRender(); });
+$('#reset-filters').addEventListener('click', resetFilters);
+$('#load-more').addEventListener('click', () => {
+  const oldLimit = state.limit;
+  state.limit += 10;
+  renderBooks();
+  const firstNew = $('#book-results').children[oldLimit]?.querySelector('h3');
+  if (firstNew) { firstNew.tabIndex = -1; firstNew.focus({ preventScroll: true }); }
+  announce('다음 검색 결과를 표시했습니다.');
+});
+window.addEventListener('popstate', () => {
+  const query = new URL(location.href).searchParams.get('q')?.trim() || '';
+  $('#q').value = query;
+  if (query) search(query, false);
+  else {
+    state.requestId++;
+    state.controller?.abort();
+    state.controller = null;
+    Object.assign(state, { query: '', providers: [], loading: false, complete: false, error: '', stopped: false });
+    $('#search-results').hidden = true;
+    $('#welcome').hidden = false;
+    document.body.classList.remove('has-query');
+    $('#clear-search').hidden = true;
+    document.title = '서울의 서재 — 읽고 싶은 책, 가까운 곳에서';
   }
 });
 
-async function streamSearchResults(query, signal, requestId) {
-  const response = await fetch(`/api/search/stream?q=${encodeURIComponent(query)}`, { signal });
-  if (!response.ok || !response.body) {
-    const data = await response.json().catch(() => ({}));
-    throw new Error(data.error || "검색 실패");
-  }
-
-  const reader = response.body.getReader();
-  const decoder = new TextDecoder();
-  let buffer = "";
-  let totalProviders = 0;
-  let completedProviders = 0;
-  let searchedAt = "";
-  const streamedResults = [];
-
-  while (true) {
-    const { value, done } = await reader.read();
-    if (done) {
-      break;
-    }
-
-    buffer += decoder.decode(value, { stream: true });
-    const chunks = buffer.split("\n\n");
-    buffer = chunks.pop() || "";
-
-    for (const chunk of chunks) {
-      const event = parseSseChunk(chunk);
-      if (!event || requestId !== activeSearchRequestId) {
-        continue;
-      }
-
-      if (event.type === "start") {
-        totalProviders = event.data.totalProviders || 0;
-        searchedAt = event.data.searchedAt || "";
-        resultMeta.textContent = `"${query}" 검색 중... 먼저 도착한 결과부터 표시합니다.`;
-        searchTime.textContent = formatSearchedAt(searchedAt);
-      }
-
-      if (event.type === "provider") {
-        completedProviders += 1;
-        streamedResults.push(event.data);
-        renderResults(streamedResults, {
-          isComplete: false,
-          completedProviders,
-          totalProviders
-        });
-        resultMeta.textContent = `"${query}" 기준 ${completedProviders}/${totalProviders || "?"}개 검색처 분석 중`;
-      }
-
-      if (event.type === "done") {
-        renderResults(streamedResults, {
-          isComplete: true,
-          completedProviders: streamedResults.length,
-          totalProviders: totalProviders || streamedResults.length
-        });
-        resultMeta.textContent = `"${query}" 기준 ${streamedResults.length}개 검색처 분석 완료`;
-        searchTime.textContent = formatSearchedAt(event.data.searchedAt || searchedAt);
-      }
-    }
-  }
+function resetPageAndRender() {
+  state.limit = 10;
+  state.expanded.clear();
+  renderResults();
+  announce($('#result-meta').textContent);
+}
+function resetFilters() {
+  state.filters = defaults();
+  $('#status-filter').value = 'all';
+  $('#provider-filter').value = 'all';
+  resetPageAndRender();
+  $('#format-filters button').focus();
 }
 
-function parseSseChunk(chunk) {
-  const lines = chunk.split("\n");
-  const type = lines.find((line) => line.startsWith("event: "))?.slice(7).trim() || "message";
-  const dataText = lines
-    .filter((line) => line.startsWith("data: "))
-    .map((line) => line.slice(6))
-    .join("\n");
-  if (!dataText) {
-    return null;
+async function search(query, updateURL = true) {
+  state.controller?.abort();
+  const requestId = ++state.requestId;
+  const controller = new AbortController();
+  Object.assign(state, {
+    query, providers: [], loading: true, complete: false, error: '', stopped: false,
+    filters: defaults(), total: state.config.length, limit: 10, controller, searchedAt: ''
+  });
+  state.expanded.clear();
+  $('#q').value = query;
+  $('#clear-search').hidden = false;
+  $('#status-filter').value = 'all';
+  $('#provider-filter').value = 'all';
+  $('#welcome').hidden = true;
+  $('#search-results').hidden = false;
+  document.body.classList.add('has-query');
+  document.title = `${query} 검색 — 서울의 서재`;
+  if (updateURL) {
+    const url = new URL(location.href);
+    if (url.searchParams.get('q') !== query) {
+      url.searchParams.set('q', query);
+      history.pushState({}, '', url);
+    }
   }
-  return {
-    type,
-    data: JSON.parse(dataText)
-  };
-}
-
-async function loadSupportedLibraries() {
-  if (!supportedLibrariesEl || !supportedCountEl) {
-    return;
-  }
-
+  saveRecent(query);
+  render();
+  announce(`${query} 검색을 시작합니다. 도착하는 결과부터 표시합니다.`);
   try {
-    const response = await fetch("/api/config/providers");
-    const data = await response.json();
-
-    if (!response.ok) {
-      throw new Error(data.error || "설정 조회 실패");
+    const response = await fetch(`/api/search/stream?q=${encodeURIComponent(query)}`, { signal: controller.signal });
+    if (!response.ok || !response.body) {
+      const data = await response.json().catch(() => ({}));
+      throw new Error(data.error || '검색 서비스에 연결하지 못했습니다.');
     }
-
-    renderSupportedLibraries(data.libraryProviders || [], data.externalProviders || [], data.physicalProviders || []);
-  } catch {
-    supportedCountEl.textContent = "지원 검색처 확인 실패";
-    renderSupportedLibrariesEmpty("목록을 불러오지 못했습니다.");
-  }
-}
-
-function renderSupportedLibraries(providers, externalProviders = [], physicalProviders = []) {
-  if (!supportedLibrariesEl || !supportedCountEl) {
-    return;
-  }
-
-  const allProviders = [...externalProviders, ...providers, ...physicalProviders];
-  supportedCountEl.textContent = `전자책 ${providers.length}개 · 외부 ${externalProviders.length}개 · 실물 ${physicalProviders.length}개`;
-  supportedLibrariesEl.replaceChildren();
-
-  if (!allProviders.length) {
-    renderSupportedLibrariesEmpty("표시할 검색처가 없습니다.");
-    return;
-  }
-
-  const fragment = document.createDocumentFragment();
-  for (const provider of allProviders) {
-    const chip = document.createElement("span");
-    const isSubscription = provider.libraryModel === "subscription";
-    chip.className = `source-pill ${isSubscription ? "is-subscription" : "is-owned"}`;
-    chip.textContent = `${provider.name} · ${
-      provider.physicalProvider ? "실물 대출" : provider.externalProvider ? "외부 구독형" : isSubscription ? "구독형" : "소장형"
-    }`;
-    fragment.appendChild(chip);
-  }
-  supportedLibrariesEl.appendChild(fragment);
-}
-
-function renderSupportedLibrariesEmpty(message) {
-  supportedLibrariesEl.replaceChildren();
-  const empty = document.createElement("p");
-  empty.className = "supported-empty";
-  empty.textContent = message;
-  supportedLibrariesEl.appendChild(empty);
-}
-
-function setSearchPending(isPending) {
-  if (!searchButton) {
-    return;
-  }
-  searchButton.disabled = isPending;
-  searchButton.textContent = isPending ? "검색 중..." : "검색";
-}
-
-function renderResultNotice(message, className) {
-  resultEl.replaceChildren();
-  const notice = document.createElement("p");
-  notice.className = className;
-  notice.textContent = message;
-  resultEl.appendChild(notice);
-}
-
-function renderRoutePanelPlaceholder() {
-  if (!routePanel) {
-    return;
-  }
-  routePanel.className = "route-panel";
-  routePanel.setAttribute("aria-labelledby", "route-panel-title");
-  routePanel.setAttribute("aria-busy", "false");
-  const steps = buildAvailabilityDecisions([], { isComplete: false }).map((decision) => ({
-    ...decision,
-    label: "검색 전",
-    text: "검색하면 이 경로의 가능 여부를 판정합니다.",
-    tone: "pending"
-  }));
-  routePanel.replaceChildren(buildRoutePanelShell("검색하면 읽기, 대출, 예약 경로를 한 번에 정리합니다.", steps));
-}
-
-function renderRoutePanelLoading(query) {
-  if (!routePanel) {
-    return;
-  }
-  routePanel.className = "route-panel";
-  routePanel.setAttribute("aria-labelledby", "route-panel-title");
-  routePanel.setAttribute("aria-busy", "true");
-  const loadingSteps = buildAvailabilityDecisions([], { isComplete: false }).map((decision) => ({
-    ...decision,
-    label: "분석 중",
-    text: `"${query}" 검색 결과를 기다리는 중입니다.`
-  }));
-  routePanel.replaceChildren(buildRoutePanelShell("도서관별 응답을 기다리는 중입니다.", loadingSteps, { busy: true }));
-}
-
-function renderRoutePanelError(message) {
-  if (!routePanel) {
-    return;
-  }
-  routePanel.className = "route-panel";
-  routePanel.setAttribute("aria-labelledby", "route-panel-title");
-  routePanel.setAttribute("aria-busy", "false");
-  const errorSteps = buildAvailabilityDecisions([], { isComplete: true }).map((decision) => ({
-    ...decision,
-    label: decision.step === "1" ? "검색 오류" : "확인 필요",
-    text: decision.step === "1" ? message : "검색어를 다시 입력하면 이 경로를 재판정합니다.",
-    tone: decision.step === "1" ? "bad" : "neutral"
-  }));
-  routePanel.replaceChildren(buildRoutePanelShell("검색을 완료하지 못했습니다. 입력값을 확인하고 다시 시도해 주세요.", errorSteps));
-}
-
-function buildRoutePanelShell(summary, decisions, options = {}) {
-  const fragment = document.createDocumentFragment();
-  const head = document.createElement("header");
-  head.className = "route-panel__header";
-
-  const mark = document.createElement("p");
-  mark.className = "route-panel__eyebrow";
-  mark.textContent = options.busy ? "분석 중" : "입수 경로 판정";
-  head.appendChild(mark);
-
-  const title = document.createElement("h4");
-  title.id = "route-panel-title";
-  title.className = "route-panel__title";
-  title.textContent = "지금 이 책을 어디서 볼 수 있나";
-  head.appendChild(title);
-
-  const body = document.createElement("p");
-  body.className = "route-panel__summary";
-  body.textContent = summary;
-  head.appendChild(body);
-  fragment.appendChild(head);
-
-  fragment.appendChild(renderPrimarySignal(decisions));
-
-  const routeMap = document.createElement("ol");
-  routeMap.className = "route-panel__map path-grid";
-  for (const decision of decisions) {
-    routeMap.appendChild(renderPathCell(decision));
-  }
-  fragment.appendChild(routeMap);
-  return fragment;
-}
-
-function renderRoutePanel(providers, options = {}) {
-  if (!routePanel) {
-    return;
-  }
-  routePanel.className = "route-panel";
-  routePanel.setAttribute("aria-labelledby", "route-panel-title");
-  routePanel.setAttribute("aria-busy", options.isComplete ? "false" : "true");
-
-  const decisions = buildAvailabilityDecisions(providers, options);
-  const completed = options.completedProviders ?? providers.length;
-  const total = options.totalProviders || providers.length;
-  const summary = options.isComplete
-    ? summarizeDecisionFlow(decisions)
-    : `${completed}/${total || "?"}개 검색처 분석 중입니다. 아직 도착하지 않은 검색처는 대기 상태로 표시됩니다.`;
-
-  routePanel.replaceChildren(buildRoutePanelShell(summary, decisions, { busy: !options.isComplete }));
-}
-
-function summarizeDecisionFlow(decisions) {
-  const firstActionable = decisions.find((decision) => decision.tone === "good" || decision.tone === "warn");
-  if (!firstActionable) {
-    return "먼저 가능한 첫 단계가 아직 없습니다. 아래 결과에서 검색 페이지를 직접 확인해 주세요.";
-  }
-  const reserveAction = decisions.find((decision) => decision.tone === "warn" && decision.label.includes("예약"));
-  const reserveCopy =
-    reserveAction && reserveAction !== firstActionable
-      ? ` 예약 가능 단계: ${reserveAction.step}단계 ${reserveAction.title}.`
-      : "";
-  return `먼저 가능한 첫 단계: ${firstActionable.step}단계 ${firstActionable.title} · ${firstActionable.label}.${reserveCopy}`;
-}
-
-function buildAvailabilityDecisions(providers, options = {}) {
-  const candidates = providers.flatMap((provider) =>
-    (provider.books || []).map((book) => ({
-      provider,
-      book
-    }))
-  );
-  const isComplete = Boolean(options.isComplete);
-  const findBest = (predicate) =>
-    candidates
-      .filter(({ book }) => isStrongTitleCandidate(book))
-      .filter(predicate)
-      .sort((left, right) => scoreBookPriority(right.book) - scoreBookPriority(left.book))[0] || null;
-
-  return [
-    buildDecision({
-      step: "1",
-      title: "밀리의서재에서 바로 보기",
-      positiveLabel: "바로 볼 수 있음",
-      positiveText: "밀리에서 바로 열람할 수 있습니다.",
-      negativeLabel: "볼 수 없음",
-      negativeText: "밀리 검색 결과는 있지만 현재 열람 가능한 상태가 아닙니다.",
-      pendingText: "밀리 결과 분석 중",
-      toneWhenNegative: "bad",
-      hit: findBest(({ provider, book }) => provider.providerId === "millie" && isBorrowNow(book)),
-      isComplete
-    }),
-    buildDecision({
-      step: "2",
-      title: "대출형 전자도서관에서 빌리기",
-      positiveLabel: "바로 대출 가능",
-      positiveText: "소장형 전자도서관에서 바로 대출할 수 있습니다.",
-      negativeLabel: "바로 대출 없음",
-      negativeText: "대출형 전자도서관에서는 바로 빌릴 후보가 없습니다.",
-      pendingText: "대출형 도서관 분석 중",
-      hit: findBest(
-        ({ provider, book }) =>
-          isOwnedLibraryProvider(provider) &&
-          isBorrowNow(book) &&
-          !isSubscriptionBorrowReason(book.decision?.reason)
-      ),
-      isComplete
-    }),
-    buildDecision({
-      step: "3",
-      title: "구독형 도서관에서 열람하기",
-      positiveLabel: "바로 열람 가능",
-      positiveText: "구독형 도서관에서 바로 열람할 수 있습니다.",
-      negativeLabel: "열람 후보 없음",
-      negativeText: "다른 구독형 도서관에서 바로 열람 가능한 후보가 없습니다.",
-      pendingText: "구독형 도서관 분석 중",
-      hit: findBest(({ provider, book }) => provider.providerId !== "millie" && isLibrarySubscriptionBorrow(provider, book)),
-      isComplete
-    }),
-    buildDecision({
-      step: "4",
-      title: "은평구 공공도서관 직접 대출",
-      positiveLabel: "직접 대출 가능",
-      positiveText: "은평구 공공도서관 실물도서를 지금 빌릴 수 있습니다.",
-      negativeLabel: "직접 대출 없음",
-      negativeText: "은평구 공공도서관에서 지금 바로 빌릴 실물도서 후보가 없습니다.",
-      pendingText: "은평 실물 대출 분석 중",
-      hit: findBest(({ provider, book }) => provider.isPhysicalProvider && isBorrowNow(book)),
-      isComplete
-    }),
-    buildDecision({
-      step: "5",
-      title: "은평구 공공도서관 직접 예약",
-      positiveLabel: "예약 가능",
-      positiveText: "은평구 공공도서관 실물도서를 예약할 수 있습니다.",
-      negativeLabel: "예약 후보 없음",
-      negativeText: "은평구 공공도서관에서 예약 가능한 실물도서 후보가 없습니다.",
-      pendingText: "은평 실물 예약 분석 중",
-      toneWhenPositive: "warn",
-      hit: findBest(({ provider, book }) => provider.isPhysicalProvider && isPhysicalReservationActionable(book)),
-      isComplete
-    }),
-    buildDecision({
-      step: "6",
-      title: "어느 도서관이든 예약하기",
-      positiveLabel: "예약 후보 있음",
-      positiveText: "검색된 도서관 중 예약 가능한 후보가 있습니다.",
-      negativeLabel: "예약 후보 없음",
-      negativeText: "현재 자동 판정으로 예약 가능한 후보가 없습니다.",
-      pendingText: "전체 예약 가능성 분석 중",
-      toneWhenPositive: "warn",
-      hit: findBest(({ book }) => isAnyReservationCandidate(book)),
-      isComplete
-    })
-  ];
-}
-
-function buildDecision({
-  step,
-  title,
-  positiveLabel,
-  positiveText,
-  negativeLabel,
-  negativeText,
-  pendingText,
-  toneWhenPositive = "good",
-  toneWhenNegative = "neutral",
-  hit,
-  isComplete
-}) {
-  if (hit) {
-    return {
-      step,
-      title,
-      label: positiveLabel,
-      text: positiveText,
-      tone: toneWhenPositive,
-      providerName: hit.provider.providerName,
-      bookTitle: hit.book.title,
-      evidence: buildDecisionEvidence(hit.provider, hit.book),
-      actionLabel: buildDecisionActionLabel(hit.provider, hit.book),
-      href: hit.book.detailURL || hit.provider.searchURL
-    };
-  }
-
-  return {
-    step,
-    title,
-    label: isComplete ? negativeLabel : "분석 중",
-    text: isComplete ? negativeText : pendingText,
-    tone: isComplete ? toneWhenNegative : "pending",
-    providerName: "",
-    bookTitle: "",
-    evidence: "",
-    actionLabel: isComplete ? "다음 후보 확인" : "검색 결과 대기",
-    href: null
-  };
-}
-
-function renderPrimarySignal(decisions) {
-  const decision = buildPrimaryVerdict(decisions);
-  const docket = document.createElement("article");
-  docket.className = `primary-signal is-${decision?.tone || "pending"}`;
-
-  const label = document.createElement("p");
-  label.className = "primary-signal__label";
-  label.textContent = decision?.tone === "warn" ? "예약 우선 안내" : "최우선 안내";
-  docket.appendChild(label);
-
-  const route = document.createElement("h5");
-  route.className = "primary-signal__route";
-  route.textContent = decision?.route || "검색 전";
-  docket.appendChild(route);
-
-  const answer = document.createElement("strong");
-  answer.className = "primary-signal__answer";
-  answer.textContent = decision?.label || "검색 전";
-  docket.appendChild(answer);
-
-  const sentence = document.createElement("p");
-  sentence.className = "primary-signal__sentence";
-  sentence.textContent = decision?.sentence || "검색하면 가장 빠른 경로가 여기에 표시됩니다.";
-  docket.appendChild(sentence);
-
-  if (decision?.evidenceLines?.length) {
-    const evidence = document.createElement("p");
-    evidence.className = "primary-signal__evidence";
-    evidence.textContent = decision.evidenceLines.join(" / ");
-    docket.appendChild(evidence);
-  }
-
-  if (decision?.actions?.length) {
-    const actions = document.createElement("div");
-    actions.className = "primary-signal__actions";
-    for (const action of decision.actions) {
-      const link = document.createElement("a");
-      link.className = "primary-signal__action";
-      link.href = action.href;
-      link.target = "_blank";
-      link.rel = "noopener noreferrer";
-      link.textContent = action.label;
-      actions.appendChild(link);
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+    let receivedDone = false;
+    function consume(chunk) {
+      if (requestId !== state.requestId) return;
+      const lines = chunk.split('\n');
+      const type = lines.find(line => line.startsWith('event:'))?.slice(6).trim();
+      const payload = lines.filter(line => line.startsWith('data:')).map(line => line.slice(5).trimStart()).join('\n');
+      if (!payload) return;
+      const data = JSON.parse(payload);
+      if (type === 'start') {
+        state.total = data.totalProviders || state.total;
+        state.searchedAt = data.searchedAt || '';
+      } else if (type === 'provider') {
+        const index = state.providers.findIndex(p => p.providerId === data.providerId);
+        if (index >= 0) state.providers[index] = data;
+        else state.providers.push(data);
+      } else if (type === 'done') {
+        receivedDone = true;
+        state.searchedAt = data.searchedAt || state.searchedAt;
+        // Some servers include final results; others only signal completion.
+        if (Array.isArray(data.libraryResults)) state.providers = data.libraryResults;
+        state.complete = true;
+        state.loading = false;
+      } else if (type === 'error') {
+        throw new Error(data.error || '검색을 완료하지 못했습니다.');
+      }
     }
-    docket.appendChild(actions);
-  } else if (decision?.href) {
-    const link = document.createElement("a");
-    link.className = "primary-signal__action";
-    link.href = decision.href;
-    link.target = "_blank";
-    link.rel = "noopener noreferrer";
-    link.textContent = decision.actionLabel || "상세 확인";
-    docket.appendChild(link);
+    while (true) {
+      const { value, done } = await reader.read();
+      if (requestId !== state.requestId) { await reader.cancel(); return; }
+      buffer += decoder.decode(value, { stream: !done }).replace(/\r\n/g, '\n');
+      let end;
+      while ((end = buffer.indexOf('\n\n')) >= 0) {
+        consume(buffer.slice(0, end));
+        buffer = buffer.slice(end + 2);
+      }
+      if (done && buffer.trim()) consume(buffer);
+      render();
+      if (done) break;
+    }
+    if (!receivedDone) throw new Error('검색 연결이 중간에 끊겼습니다.');
+    announce(`${query} 검색 완료. ${$('#result-meta').textContent}${sourceIssues(state.providers).length ? ' 일부 검색처의 결과를 모두 확인하지 못했습니다.' : ''}`);
+  } catch (error) {
+    if (requestId !== state.requestId || error.name === 'AbortError') return;
+    state.complete = false;
+    state.error = error.message || '검색을 완료하지 못했습니다.';
+    announce(`${state.error} 도착한 결과는 유지됩니다. 다시 검색해 주세요.`);
+  } finally {
+    if (requestId === state.requestId) {
+      state.loading = false;
+      state.controller = null;
+      render();
+    }
   }
-
-  return docket;
 }
 
-function buildPrimaryVerdict(decisions) {
-  const firstActionable =
-    decisions.find((item) => item.tone === "good" || item.tone === "warn") ||
-    decisions.find((item) => item.tone === "bad") ||
-    decisions[0];
-  const directReserve = decisions.find(
-    (item) => item.step === "5" && item.tone === "warn" && item.label.includes("예약")
-  );
-
-  if (firstActionable && directReserve && directReserve !== firstActionable) {
-    return {
-      tone: "warn",
-      label: `${firstActionable.label} · ${directReserve.label}`,
-      route: `${firstActionable.step}단계 + ${directReserve.step}단계 · 읽기와 예약을 함께 확보`,
-      sentence: `${buildVerdictSentence(firstActionable)}. 은평구 공공도서관 직접 예약도 가능합니다.`,
-      evidenceLines: [formatVerdictEvidence(firstActionable), formatVerdictEvidence(directReserve)].filter(Boolean),
-      actions: [firstActionable, directReserve]
-        .filter((item) => item.href)
-        .map((item) => ({
-          href: item.href,
-          label: item === directReserve ? "은평 예약 확인" : item.actionLabel || "상세 확인"
-        }))
-    };
+function render() {
+  const completed = state.providers.length;
+  const issues = sourceIssues(state.providers);
+  $('#cancel-search').hidden = !state.loading;
+  $('#status-dot').className = `status-dot${state.loading ? ' pending' : state.error || state.stopped || issues.length ? ' interrupted' : ''}`;
+  $('#search-progress').style.width = `${state.complete ? 100 : Math.max(3, completed / (state.total || 1) * 100)}%`;
+  $('#progress-label').textContent = state.loading
+    ? `${state.total || '전체'}곳 중 ${completed}곳 확인 · 검색 중`
+    : state.stopped ? `검색 중지 · ${completed}곳의 결과 확인`
+      : state.error ? `연결 중단 · ${completed}곳의 결과 확인`
+        : `${completed}곳 확인 완료${state.searchedAt ? ` · ${new Date(state.searchedAt).toLocaleTimeString('ko-KR', { hour: '2-digit', minute: '2-digit' })}` : ''}`;
+  $('#coverage-status').textContent = issues.length ? `미완료 ${issues.length}곳 · 검색처 상태 ↗` : '검색처 상태 보기 ↗';
+  const warning = $('#search-warning');
+  warning.replaceChildren();
+  warning.hidden = !issues.length && !state.error && !state.stopped;
+  if (!warning.hidden) {
+    warning.append(el('p', '', state.error
+      ? `${state.error} 도착한 결과는 아래에서 확인할 수 있어요.`
+      : state.stopped ? '검색을 중지했어요. 아직 확인하지 못한 검색처가 있습니다.'
+        : `${issues.length}곳의 검색 결과를 모두 확인하지 못했어요. 해당 도서관에도 책이 있을 수 있습니다.`));
+    warning.append(button(state.error || state.stopped ? '다시 검색' : '검색처 상태 확인', 'text-button', state.error || state.stopped ? () => search(state.query) : openSources));
   }
-
-  if (!firstActionable) {
-    return null;
-  }
-
-  return {
-    ...firstActionable,
-    route: `${firstActionable.step}단계 · ${firstActionable.title}`,
-    sentence: buildVerdictSentence(firstActionable),
-    evidenceLines: [formatVerdictEvidence(firstActionable)].filter(Boolean)
-  };
+  renderResults();
+  if ($('#sources-dialog').open) renderSources();
 }
-
-function formatVerdictEvidence(decision) {
-  return [decision.providerName, decision.bookTitle, decision.evidence].filter(Boolean).join(" · ");
+function renderResults() {
+  const entries = entriesFrom(state.providers);
+  for (const node of document.querySelectorAll('#format-filters [data-format]')) {
+    const format = node.dataset.format;
+    node.setAttribute('aria-pressed', String(state.filters.format === format));
+    node.querySelector('span').textContent = groupEntries(filterEntries(entries, { ...state.filters, format })).length;
+  }
+  $('#reset-filters').hidden = Object.values(state.filters).every(value => value === 'all');
+  renderRecommendation(filterEntries(entries, state.filters));
+  renderBooks(entries);
 }
-
-function buildVerdictSentence(decision) {
-  if (decision.step === "3" && decision.label === "바로 열람 가능") {
-    return "구독형 도서관에서 바로 열람 가능";
-  }
-  if (decision.step === "1" && decision.label === "볼 수 없음") {
-    return "밀리의서재 링크가 있어도 현재 열람 가능한 책은 아닙니다.";
-  }
-  if ((decision.step === "5" || decision.step === "6") && decision.label.includes("예약")) {
-    return `${decision.title} · ${decision.label}`;
-  }
-  return decision.text;
+function renderRecommendation(entries) {
+  const container = $('#recommendation');
+  const candidate = bestEntry(entries);
+  container.hidden = !candidate;
+  if (!candidate) return;
+  const { provider, book } = candidate;
+  const signature = `${candidate.key}:${book.decision.state}`;
+  if (container.dataset.signature === signature) return;
+  container.dataset.signature = signature;
+  container.replaceChildren();
+  const available = book.decision.state === 'borrow_now';
+  const mark = el('span', 'recommendation-icon');
+  mark.append(svg(available ? 'check' : 'clock'));
+  const copy = el('div', 'recommendation-copy');
+  copy.append(el('p', '', available ? '먼저 확인해 보세요 · 바로 이용 가능' : '기다려도 읽고 싶은 책이라면'));
+  copy.append(el('h3', '', book.title));
+  const name = book.localLibraryName || provider.providerName;
+  const condition = provider.isExternalProvider ? '서비스 구독 필요' : formatOf(candidate) === 'physical' ? '도서관 방문 · 회원 대출' : '도서관 회원 이용';
+  copy.append(el('p', 'recommendation-detail', `${name} · ${formatLabels[formatOf(candidate)]} · ${condition}`));
+  const action = link(available ? (formatOf(candidate) === 'physical' ? '소장 위치 확인' : '읽으러 가기') : '예약하러 가기', book.detailURL || provider.searchURL, 'button button-primary', `${name}에서 ${book.title} ${available ? '이용' : '예약'}`);
+  container.append(mark, copy, action);
 }
-
-function renderPathCell(decision) {
-  const card = document.createElement("li");
-  card.className = `path-cell path-cell--${decision.tone} is-${decision.tone}`;
-  card.dataset.step = decision.step;
-
-  const step = document.createElement("p");
-  step.className = "path-cell__number";
-  step.textContent = `${decision.step}단계`;
-  card.appendChild(step);
-
-  const title = document.createElement("h5");
-  title.className = "path-cell__title";
-  title.textContent = `${decision.step}. ${decision.title}`;
-  card.appendChild(title);
-
-  const status = document.createElement("strong");
-  status.className = "path-cell__answer";
-  status.textContent = decision.label;
-  card.appendChild(status);
-
-  const text = document.createElement("p");
-  text.className = "path-cell__copy";
-  text.textContent = decision.text;
-  card.appendChild(text);
-
-  if (decision.providerName || decision.bookTitle || decision.evidence) {
-    const evidence = document.createElement("p");
-    evidence.className = "path-cell__evidence";
-    evidence.textContent = [decision.providerName, decision.bookTitle, decision.evidence]
-      .filter(Boolean)
-      .join(" · ");
-    card.appendChild(evidence);
+function renderBooks(entries = entriesFrom(state.providers)) {
+  const filtered = filterEntries(entries, state.filters);
+  const groups = groupEntries(filtered, state.sort, state.query);
+  const activeFilter = Object.values(state.filters).some(value => value !== 'all');
+  $('#results-title').textContent = `‘${state.query}’ 검색 결과`;
+  $('#result-meta').textContent = `${groups.length}개 제목 · ${filtered.length}개 소장·구독 정보${activeFilter ? ' · 필터 적용 중' : ''}`;
+  $('#filter-result-count').textContent = `${groups.length}개 제목`;
+  $('#filter-bar').hidden = !entries.length;
+  $('.sort-label').hidden = !entries.length;
+  $('#result-note').hidden = !groups.length;
+  const container = $('#book-results');
+  const focusedKey = document.activeElement?.dataset.focusKey;
+  const oldCards = new Map([...container.children].map(card => [card.dataset.key, card]));
+  const wanted = [];
+  if (!groups.length) {
+    if (state.loading && !entries.length) {
+      const skeleton = el('div', 'skeleton');
+      skeleton.setAttribute('aria-hidden', 'true');
+      const lines = el('div', 'skeleton-copy');
+      lines.append(el('span'), el('span'), el('span'));
+      skeleton.append(el('div', 'skeleton-cover'), lines);
+      wanted.push(skeleton);
+    } else {
+      const empty = el('div', 'empty-state');
+      empty.append(svg('search'));
+      const incomplete = state.error || state.stopped || sourceIssues(state.providers).length;
+      empty.append(el('h3', '', activeFilter ? '선택한 조건에 맞는 책이 없어요' : state.loading ? '다른 도서관도 살펴보고 있어요' : incomplete ? '아직 책이 없는지 확정할 수 없어요' : '이 검색어로 찾은 책이 없어요'));
+      empty.append(el('p', '', activeFilter ? '다른 이용 상태나 검색처를 선택해 보세요.' : state.loading ? '먼저 확인한 검색처에는 결과가 없습니다. 도착하는 대로 보여드릴게요.' : incomplete ? '일부 검색처를 확인하지 못했습니다. 다시 검색하거나 해당 도서관에서 직접 찾아보세요.' : '제목의 띄어쓰기를 바꾸거나, 핵심 단어만 입력해 보세요.'));
+      if (activeFilter) empty.append(button('필터 초기화', 'button', resetFilters));
+      else if (!state.loading) empty.append(button(incomplete ? '다시 검색' : '검색어 바꾸기', 'button', incomplete ? () => search(state.query) : () => { $('#q').focus(); $('#q').select(); }));
+      wanted.push(empty);
+    }
+  } else {
+    for (const group of groups.slice(0, state.limit)) {
+      const signature = JSON.stringify(group.entries.map(e => [e.key, e.book.decision?.state]));
+      const previous = oldCards.get(group.key);
+      const card = previous?.dataset.signature === signature ? previous : renderBook(group);
+      card.dataset.key = group.key;
+      card.dataset.signature = signature;
+      wanted.push(card);
+    }
   }
-
-  if (decision.href) {
-    const link = document.createElement("a");
-    link.className = "path-cell__action";
-    link.href = decision.href;
-    link.target = "_blank";
-    link.rel = "noopener noreferrer";
-    link.textContent = decision.actionLabel || "상세 확인";
-    card.appendChild(link);
+  // Move only changed nodes; preserve open details and keyboard focus as sources arrive.
+  const keep = new Set(wanted);
+  for (const child of [...container.children]) if (!keep.has(child)) child.remove();
+  wanted.forEach((node, index) => { if (container.children[index] !== node) container.insertBefore(node, container.children[index] || null); });
+  if (focusedKey) {
+    const target = [...container.querySelectorAll('[data-focus-key]')].find(node => node.dataset.focusKey === focusedKey);
+    if (target && target !== document.activeElement) target.focus({ preventScroll: true });
   }
-
+  const more = $('#load-more');
+  more.hidden = groups.length <= state.limit;
+  more.textContent = `검색 결과 ${Math.min(10, groups.length - state.limit)}개 더 보기 (${Math.min(state.limit, groups.length)}/${groups.length})`;
+}
+function renderBook(group) {
+  const card = el('article', 'book-card');
+  const header = el('header', 'book-header');
+  const cover = el('div', 'book-cover');
+  cover.setAttribute('aria-hidden', 'true');
+  cover.append(svg('book'));
+  const imageURL = group.entries.map(e => safeURL(e.book.coverImageURL)).find(Boolean);
+  if (imageURL) {
+    const image = el('img');
+    image.alt = '';
+    image.loading = 'lazy';
+    image.decoding = 'async';
+    image.src = imageURL;
+    image.addEventListener('error', () => image.remove(), { once: true });
+    cover.append(image);
+  }
+  const heading = el('div', 'book-heading');
+  const tags = el('div', 'book-labels');
+  if (group.entries.some(e => e.book.isExactTitleMatch)) tags.append(el('span', 'tag tag-exact', '제목 일치'));
+  if (!group.strong) tags.append(el('span', 'tag tag-weak', '관련 검색 결과'));
+  for (const format of new Set(group.entries.map(formatOf))) tags.append(el('span', 'tag', formatLabels[format]));
+  if (group.entries.some(e => e.book.isLargePrint)) tags.append(el('span', 'tag', '큰글자책'));
+  heading.append(tags, el('h3', '', group.title));
+  const summary = el('p', 'book-summary');
+  const count = group.entries.filter(e => e.book.decision?.state === 'borrow_now').length;
+  const sources = new Set(group.entries.map(e => e.book.localLibraryName || e.provider.providerName)).size;
+  summary.append(document.createTextNode(`${sources}개 검색처 · ${group.entries.length}개 이용 정보`));
+  if (count) summary.append(document.createTextNode(' · '), el('strong', '', `${count}개 바로 이용 가능`));
+  heading.append(summary);
+  header.append(cover, heading);
+  const rows = el('div', 'book-rows');
+  const ordered = previewEntries(group.entries);
+  ordered.slice(0, 3).forEach(entry => rows.append(renderEntry(entry, group.title)));
+  card.append(header, rows);
+  if (group.entries.length > 3) {
+    const details = el('details', 'more-locations');
+    details.open = state.expanded.has(group.key);
+    const summary = el('summary', '', `이용 정보 ${group.entries.length - 3}개 더 보기`);
+    summary.dataset.focusKey = `more:${group.key}`;
+    const remaining = el('div', 'book-rows');
+    ordered.slice(3).forEach(entry => remaining.append(renderEntry(entry, group.title)));
+    details.append(summary, remaining);
+    details.addEventListener('toggle', () => {
+      if (!details.isConnected) return;
+      if (details.open) state.expanded.add(group.key); else state.expanded.delete(group.key);
+      summary.textContent = details.open ? '추가 이용 정보 접기' : `이용 정보 ${group.entries.length - 3}개 더 보기`;
+    });
+    card.append(details);
+  }
   return card;
 }
-
-function buildDecisionActionLabel(provider, book) {
-  if (provider.providerId === "millie") {
-    return "밀리 상세 열기";
+function renderEntry(entry, groupTitle) {
+  const { provider, book } = entry;
+  const row = el('div', 'availability-row');
+  row.dataset.entryKey = entry.key;
+  row.dataset.state = book.decision?.state || 'unknown';
+  row.dataset.format = formatOf(entry);
+  const location = el('div', 'location');
+  const title = el('div', 'location-heading');
+  const name = book.localLibraryName || provider.providerName;
+  title.append(el('span', 'location-name', name));
+  if (book.isPreferredDaejo) title.append(el('span', 'preferred-tag', '대조동'));
+  location.append(title);
+  const sub = [];
+  if (formatOf(entry) === 'physical') {
+    if (book.localShelfLocation) sub.push(book.localShelfLocation);
+    if (book.localCallNo) sub.push(`청구기호 ${book.localCallNo}`);
+  } else {
+    if (book.storeName) sub.push(book.storeName);
+    if (provider.isExternalProvider) sub.push('서비스 구독 필요');
+    else if (book.decision?.reason === 'library_subscription_provider_listed' || provider.libraryModel === 'subscription') sub.push('구독형 · 도서관 회원 이용');
+    else sub.push('도서관 회원 대출');
   }
-  if (provider.isPhysicalProvider && isReservationActionable(book)) {
-    return "예약 페이지 확인";
-  }
-  if (provider.isPhysicalProvider) {
-    return "소장 위치 확인";
-  }
-  if (isLibrarySubscriptionBorrow(provider, book)) {
-    return "구독 열람 확인";
-  }
-  return "대출 페이지 확인";
+  if (sub.length) location.append(el('p', 'location-detail', sub.join(' · ')));
+  if (book.title !== groupTitle) location.append(el('p', 'location-detail', book.title));
+  const physicalActions = [];
+  if (book.isMutualLoanAvailable) physicalActions.push('상호대차 가능');
+  if (book.isUnmannedReservationAvailable) physicalActions.push('무인예약 가능');
+  if (book.isChaekdanbiReservable) physicalActions.push('책단비 예약 가능');
+  if (book.isOtherLibraryReturnAvailable) physicalActions.push('타관 반납 가능');
+  if (book.localReturnPlanDate) physicalActions.push(`반납 예정 ${book.localReturnPlanDate}`);
+  if (physicalActions.length) location.append(el('p', 'copy-detail', physicalActions.join(' · ')));
+  const status = el('div', 'location-status');
+  status.append(el('span', `availability ${book.decision?.state || 'unknown'}`, stateLabel(entry)));
+  const counts = [];
+  if (typeof book.availableCount === 'number' && typeof book.holdingsCount === 'number' && formatOf(entry) !== 'physical') counts.push(`${book.availableCount}/${book.holdingsCount}권 대출 가능`);
+  if (typeof book.reservationCount === 'number' && book.reservationCount > 0) counts.push(`예약 ${book.reservationCount}명`);
+  if (formatOf(entry) === 'physical' && book.localLoanStatus) counts.push(book.localLoanStatus);
+  if (counts.length) status.append(el('span', 'status-detail', counts.join(' · ')));
+  const action = link('도서 보기', book.detailURL || provider.searchURL, 'book-link', `${name} ${book.title} 도서 보기`);
+  action.dataset.focusKey = `entry:${entry.key}`;
+  row.append(location, status, action);
+  return row;
 }
 
-function buildDecisionEvidence(provider, book) {
-  if (book.localLibraryAccess) {
-    return [book.localLoanStatus, book.localShelfLocation].filter(Boolean).join(" / ");
-  }
-  if (book.contentKindLabel) {
-    return `밀리 ${book.contentKindLabel}`;
-  }
-  return getLibraryModelLabel(provider);
+function openSources() {
+  renderSources();
+  $('#sources-dialog').showModal();
 }
-
-function renderResults(results, options = {}) {
-  sharedCoverURLByKey.clear();
-  const enrichedProviders = results.map(deriveProviderStats);
-  const sortedProviders = [...enrichedProviders].sort(compareProviders);
-  renderRoutePanel(sortedProviders, options);
-  resultEl.replaceChildren();
-
-  if (!sortedProviders.length) {
-    renderResultNotice("표시할 검색 결과가 없습니다.", "evidence-empty");
-    return;
-  }
-
-  for (const provider of sortedProviders) {
-    const items = provider.books || [];
-    const card = providerTemplate.content.cloneNode(true);
-    const root = card.querySelector(".source-block");
-    root.classList.add("evidence-feed__provider");
-
-    root.querySelector(".source-block__name").textContent = provider.providerName;
-    root.querySelector(".source-block__meta").textContent = `파싱 도서 ${items.length}권 · ${getLibraryModelLabel(provider)}`;
-    root.querySelector(".search-link").href = provider.searchURL;
-    root.querySelector(".login-link").href = provider.loginURL;
-
-    const providerTags = root.querySelector(".source-block__tags");
-    const storeNames = Array.from(new Set(items.map((book) => normalizeStoreName(book.storeName))));
-    const modelTag = document.createElement("span");
-    modelTag.className = `source-block__tag ${
-      provider.libraryModel === "subscription" ? "is-subscription" : "is-owned"
-    }`;
-    modelTag.textContent = getLibraryModelLabel(provider);
-    providerTags.appendChild(modelTag);
-    for (const storeName of storeNames.sort(compareStoreNames)) {
-      const storeTag = document.createElement("span");
-      storeTag.className = "source-block__tag is-store";
-      storeTag.textContent = storeName;
-      providerTags.appendChild(storeTag);
-    }
-
-    const highlight = root.querySelector(".source-block__signal");
-    highlight.classList.add(provider.providerInstantCount > 0 ? "has-instant" : "no-instant");
-    highlight.textContent =
-      provider.providerInstantCount > 0 ? "바로 대출 후보 있음" : "바로 대출 후보 없음";
-
-    const connection = document.createElement("p");
-    connection.classList.add("source-connection", provider.searchable ? "connected" : "disconnected");
-    connection.textContent = provider.searchable
-      ? `연결 상태: 정상 (${provider.statusCode})`
-      : `연결 상태: 실패 (${provider.error || provider.statusCode})`;
-
-    const bookList = root.querySelector(".source-block__items");
-    const sortedItems = [...items].sort(compareBooksForBorrowFirst);
-    const groupedItems = groupBooksByStore(sortedItems);
-
-    if (!items.length) {
-      const empty = document.createElement("p");
-      empty.className = "evidence-empty";
-      empty.textContent = "이 키워드는 자동 파싱 결과가 없었습니다. 검색 페이지에서 직접 확인해 주세요.";
-      bookList.appendChild(empty);
-      root.appendChild(connection);
-      if (!provider.searchable) {
-        root.classList.add("is-disconnected");
-      }
-      resultEl.appendChild(card);
-      continue;
-    }
-
-    for (const group of groupedItems) {
-      const groupNode = document.createElement("section");
-      groupNode.className = "source-block__store-group";
-
-      const groupTitle = document.createElement("p");
-      groupTitle.className = "source-block__store-title";
-      groupTitle.textContent = `${group.storeName} · ${group.books.length}권`;
-      groupNode.appendChild(groupTitle);
-
-      for (const book of group.books) {
-        const node = rowTemplate.content.cloneNode(true);
-        const stateView = renderState(book.decision);
-        const itemNode = node.querySelector(".copy-line");
-        itemNode.classList.add("copy-line", stateView.containerClass);
-        const coverNode = node.querySelector(".copy-line__cover");
-        const optimizedCoverURL = optimizeCoverImageURL(book.coverImageURL);
-        if (optimizedCoverURL) {
-          coverNode.src = optimizedCoverURL;
-          coverNode.alt = `${book.title} 표지`;
-        } else {
-          itemNode.classList.add("no-cover");
-          coverNode.remove();
-        }
-        const detailLink = node.querySelector(".copy-line__title-link");
-        detailLink.href = book.detailURL || provider.searchURL;
-        detailLink.title = book.detailURL ? "도서 상세 페이지 열기" : "상세 링크가 없어 검색 페이지로 이동";
-        node.querySelector(".copy-line__title").textContent = book.title;
-        const sourceNode = node.querySelector(".copy-line__source");
-        sourceNode.textContent = `공급사: ${book.storeName || "미확인"}`;
-        const actionLinksNode = node.querySelector(".copy-line__actions");
-        const previewLink = node.querySelector(".copy-line__preview");
-        if (book.previewURL) {
-          previewLink.href = book.previewURL;
-          previewLink.title = "도서 미리보기 열기";
-        } else {
-          actionLinksNode.remove();
-        }
-        const statusNode = node.querySelector(".copy-line__status");
-        statusNode.classList.add("copy-line__status", stateView.textClass);
-        statusNode.textContent = stateView.text;
-        node.querySelector(".copy-line__counts").textContent = renderCounts(book);
-        groupNode.appendChild(node);
-      }
-
-      bookList.appendChild(groupNode);
-    }
-    root.appendChild(connection);
-    if (!provider.searchable) {
-      root.classList.add("is-disconnected");
-    }
-    resultEl.appendChild(card);
-  }
-}
-
-function compareProviders(a, b) {
-  const rankA = providerRank(a);
-  const rankB = providerRank(b);
-
-  if (rankA !== rankB) {
-    return rankA - rankB;
-  }
-
-  const exactDiff = (b.providerExactBorrowCount || 0) - (a.providerExactBorrowCount || 0);
-  if (exactDiff !== 0) {
-    return exactDiff;
-  }
-
-  const titleDiff = (b.providerTitleScore || 0) - (a.providerTitleScore || 0);
-  if (titleDiff !== 0) {
-    return titleDiff;
-  }
-
-  const sizeDiff = (b.books?.length || 0) - (a.books?.length || 0);
-  if (sizeDiff !== 0) {
-    return sizeDiff;
-  }
-
-  return a.providerName.localeCompare(b.providerName, "ko-KR");
-}
-
-function providerRank(provider) {
-  if (provider.providerInstantCount > 0) {
-    return provider.isPhysicalProvider ? 3 : 1;
-  }
-  if (provider.providerSubscriptionCount > 0 && provider.providerId === "millie") {
-    return 0;
-  }
-  if (provider.providerSubscriptionCount > 0 && !provider.isSubscriptionProvider) {
-    return 1;
-  }
-  if (provider.providerSubscriptionCount > 0 && provider.isSubscriptionProvider) {
-    return 2;
-  }
-  if (provider.searchable) {
-    return 3;
-  }
-  return 4;
-}
-
-function isSubscriptionBorrowReason(reason) {
-  return reason === "subscription_provider_listed" || reason === "library_subscription_provider_listed";
-}
-
-function isBorrowNow(book) {
-  return book.decision?.state === "borrow_now";
-}
-
-function isOwnedLibraryProvider(provider) {
-  return !provider.isExternalProvider && !provider.isPhysicalProvider && provider.libraryModel !== "subscription";
-}
-
-function isLibrarySubscriptionBorrow(provider, book) {
-  return (
-    isBorrowNow(book) &&
-    !provider.isPhysicalProvider &&
-    (provider.isSubscriptionProvider || isSubscriptionBorrowReason(book.decision?.reason))
-  );
-}
-
-function isReservationActionable(book) {
-  return isAnyReservationCandidate(book);
-}
-
-function isPhysicalReservationActionable(book) {
-  return (
-    book.decision?.state === "reserve" &&
-    (
-      book.decision?.reason === "eunpyeong_public_reservable" ||
-      /예약\s*가능|예약가능/.test(book.rawStatusText || "") ||
-      book.isUnmannedReservationAvailable
-    )
-  );
-}
-
-function isAnyReservationCandidate(book) {
-  return book.decision?.state === "reserve";
-}
-
-function deriveProviderStats(provider) {
-  const books = provider.books || [];
-  const immediateBorrowBooks = books.filter(
-    (book) =>
-      book.decision?.state === "borrow_now" &&
-      !isSubscriptionBorrowReason(book.decision?.reason) &&
-      isStrongTitleCandidate(book)
-  );
-  const subscriptionBorrowBooks = books.filter(
-    (book) =>
-      book.decision?.state === "borrow_now" &&
-      isSubscriptionBorrowReason(book.decision?.reason) &&
-      isStrongTitleCandidate(book)
-  );
-  const exactBorrowBooks = books.filter(
-    (book) => book.decision?.state === "borrow_now" && book.isExactTitleMatch
-  );
-  const providerTopAvailability = Math.max(0, ...immediateBorrowBooks.map((book) => book.availableCount || 0));
-  const providerTitleScore = Math.max(0, ...books.map((book) => book.titleMatchScore || 0));
-
-  return {
-    ...provider,
-    providerInstantCount: immediateBorrowBooks.length,
-    providerSubscriptionCount: subscriptionBorrowBooks.length,
-    providerExactBorrowCount: exactBorrowBooks.length,
-    providerUrgencyScore: immediateBorrowBooks.length * 100 + providerTopAvailability,
-    providerTitleScore
-  };
-}
-
-function compareBooksForBorrowFirst(a, b) {
-  const scoreA = scoreBookPriority(a);
-  const scoreB = scoreBookPriority(b);
-  return scoreB - scoreA;
-}
-
-function optimizeCoverImageURL(coverImageURL) {
-  if (!coverImageURL) {
-    return null;
-  }
-
-  let key = coverImageURL;
+async function loadConfig() {
   try {
-    const parsed = new URL(coverImageURL);
-    key = `${parsed.origin}${parsed.pathname}`;
+    const response = await fetch('/api/config/providers');
+    if (!response.ok) throw new Error('검색처 목록을 불러오지 못했습니다.');
+    const data = await response.json();
+    state.config = [...(data.libraryProviders || []), ...(data.externalProviders || []), ...(data.physicalProviders || [])];
+    $('#source-count').textContent = state.config.length;
+    $('#library-count').textContent = `${(data.libraryProviders || []).length}곳`;
+    const selected = $('#provider-filter').value;
+    $('#provider-filter').replaceChildren(new Option('모든 검색처', 'all'));
+    state.config.forEach(provider => $('#provider-filter').append(new Option(provider.name, provider.id)));
+    $('#provider-filter').value = selected;
+    renderSources();
   } catch {
-    key = coverImageURL;
+    $('#source-count').textContent = '!';
+    $('#sources-list').replaceChildren(el('p', '', '검색처 목록을 불러오지 못했습니다.'), button('다시 불러오기', 'text-button', loadConfig));
   }
-
-  const sharedURL = sharedCoverURLByKey.get(key);
-  if (sharedURL) {
-    return sharedURL;
+}
+function renderSources() {
+  const list = $('#sources-list');
+  if (!state.config.length) return;
+  const focusedKey = document.activeElement?.dataset.focusKey;
+  list.replaceChildren();
+  const sections = [
+    ['전자도서관', p => !p.externalProvider && !p.physicalProvider],
+    ['구독 서비스', p => p.externalProvider],
+    ['실물도서', p => p.physicalProvider]
+  ];
+  for (const [label, matches] of sections) {
+    const providers = state.config.filter(matches);
+    if (!providers.length) continue;
+    const section = el('section', 'source-section');
+    section.append(el('h3', '', `${label} · ${providers.length}곳`));
+    for (const config of providers) {
+      const result = state.providers.find(p => p.providerId === config.id);
+      const row = el('div', 'source-row');
+      const url = result?.searchURL || config.baseURL?.replace('{searchTerm}', encodeURIComponent(state.query)) || config.loginURL;
+      const anchor = link(config.name, url);
+      anchor.dataset.focusKey = `source:${config.id}`;
+      row.append(anchor);
+      const issue = result && sourceIssues([result]).length;
+      const status = !state.query ? (config.libraryModel === 'mixed' ? '대출형·구독형' : config.libraryModel === 'subscription' ? '구독형' : config.physicalProvider ? '실물 대출' : '대출형')
+        : !result ? state.loading ? '확인 중' : '확인하지 못함'
+          : !result.ok || !result.searchable ? '연결 오류'
+            : result.partialResults ? '일부 확인'
+              : result.books?.length ? `${result.books.length}개 이용 정보` : '결과 없음';
+      row.append(el('span', `source-state${issue ? ' is-warning' : result?.books?.length ? ' is-ok' : ''}`, status));
+      if (issue) row.append(el('p', 'source-warning', result.partialResults
+        ? `${result.totalResults ?? '?'}개 중 ${result.checkedResults ?? result.books?.length ?? 0}개 확인. ${result.warning || '전체 결과를 확인하지 못했습니다.'}`
+        : '연결되지 않아 소장 여부를 확인할 수 없습니다. 도서관에서 직접 검색해 주세요.'));
+      section.append(row);
+    }
+    list.append(section);
   }
-
-  if (sharedCoverURLByKey.size > 300) {
-    sharedCoverURLByKey.clear();
-  }
-
-  sharedCoverURLByKey.set(key, coverImageURL);
-  return coverImageURL;
+  if (focusedKey) [...list.querySelectorAll('[data-focus-key]')].find(node => node.dataset.focusKey === focusedKey)?.focus({ preventScroll: true });
 }
 
-function groupBooksByStore(books) {
-  const storeGroups = new Map();
-
-  for (const book of books) {
-    const storeName = normalizeStoreName(book.storeName);
-    if (!storeGroups.has(storeName)) {
-      storeGroups.set(storeName, []);
-    }
-    storeGroups.get(storeName).push({
-      ...book,
-      storeName
-    });
-  }
-
-  return Array.from(storeGroups.entries())
-    .sort(([nameA, booksA], [nameB, booksB]) => {
-      const priorityA = Math.max(0, ...booksA.map(scoreBookPriority));
-      const priorityB = Math.max(0, ...booksB.map(scoreBookPriority));
-      if (priorityA !== priorityB) {
-        return priorityB - priorityA;
-      }
-      return compareStoreNames(nameA, nameB);
-    })
-    .map(([storeName, groupedBooks]) => ({
-      storeName,
-      books: groupedBooks
-    }));
-}
-
-function normalizeStoreName(storeName) {
-  if (!storeName) {
-    return "공급사 미확인";
-  }
-
-  const normalized = storeName.trim();
-  if (!normalized) {
-    return "공급사 미확인";
-  }
-  if (/yes24/i.test(normalized)) {
-    return "YES24";
-  }
-  if (/교보\s*문고|교보문고|kyobo/i.test(normalized)) {
-    return "교보문고";
-  }
-  return normalized;
-}
-
-function compareStoreNames(a, b) {
-  const rank = (storeName) => {
-    if (storeName === "YES24") {
-      return 0;
-    }
-    if (storeName === "교보문고") {
-      return 1;
-    }
-    if (storeName === "공급사 미확인") {
-      return 3;
-    }
-    return 2;
-  };
-
-  const rankDiff = rank(a) - rank(b);
-  if (rankDiff !== 0) {
-    return rankDiff;
-  }
-  return a.localeCompare(b, "ko-KR");
-}
-
-function scoreBookPriority(book) {
-  let score = book.titleMatchScore || 0;
-  if (book.isLargePrint) {
-    score -= 250;
-  }
-  if (book.localLibraryAccess) {
-    if (book.decision?.state === "borrow_now") {
-      score += 1000;
-    }
-    if (book.isPreferredDaejo) {
-      score += 3000;
-    }
-    if (book.isMutualLoanAvailable) {
-      score += 120;
-    }
-    if (book.isUnmannedReservationAvailable) {
-      score += 100;
-    }
-    return score;
-  }
-  if (book.subscriptionAccess) {
-    if (book.decision?.state === "borrow_now") {
-      score += book.contentKind === "ebook" ? 350 : 250;
-    } else if (book.decision?.state === "unavailable") {
-      score -= 100;
-    }
-    return score;
-  }
-  const state = book.decision?.state;
-  if (state === "borrow_now") {
-    return score + 300 + (book.availableCount || 0);
-  }
-  if (state === "reserve") {
-    return score + 200;
-  }
-  if (state === "unknown") {
-    return score + 100;
-  }
-  return score;
-}
-
-function isStrongTitleCandidate(book) {
-  return ["exact", "starts_with", "contains"].includes(book?.titleMatch?.level);
-}
-
-function renderState(decision) {
-  if (!decision) {
-    return {
-      text: "상태 미상",
-      textClass: "muted",
-      containerClass: "state-unknown"
-    };
-  }
-  if (decision.state === "borrow_now") {
-    if (decision.reason === "eunpyeong_public_available") {
-      return {
-        text: `은평 실물도서 대출 가능 (신뢰도: ${decision.confidence})`,
-        textClass: "ok",
-        containerClass: "state-borrow"
-      };
-    }
-    if (decision.reason === "subscription_provider_listed") {
-      return {
-        text: `밀리에서 앱 이용 가능 (신뢰도: ${decision.confidence})`,
-        textClass: "ok",
-        containerClass: "state-borrow"
-      };
-    }
-    if (decision.reason === "library_subscription_provider_listed") {
-      return {
-        text: `구독형 도서관에서 바로 열람 가능 (신뢰도: ${decision.confidence})`,
-        textClass: "ok",
-        containerClass: "state-borrow"
-      };
-    }
-    return {
-      text: `지금 대출 가능 (신뢰도: ${decision.confidence})`,
-      textClass: "ok",
-      containerClass: "state-borrow"
-    };
-  }
-  if (decision.state === "reserve") {
-    if (decision.reason === "eunpyeong_public_reservable") {
-      return {
-        text: `예약 가능 (신뢰도: ${decision.confidence})`,
-        textClass: "warn",
-        containerClass: "state-reserve"
-      };
-    }
-    return {
-      text: `예약/대기 상태 (신뢰도: ${decision.confidence})`,
-      textClass: "warn",
-      containerClass: "state-reserve"
-    };
-  }
-  if (decision.state === "unavailable") {
-    if (decision.reason === "subscription_provider_unavailable") {
-      return {
-        text: `밀리에서 현재 볼 수 없음 (신뢰도: ${decision.confidence})`,
-        textClass: "muted",
-        containerClass: "state-unavailable"
-      };
-    }
-    return {
-      text: `미소장/이용불가 (신뢰도: ${decision.confidence})`,
-      textClass: "muted",
-      containerClass: "state-unavailable"
-    };
-  }
-  return {
-    text: `판단 보류 (신뢰도: ${decision.confidence})`,
-    textClass: "muted",
-    containerClass: "state-unknown"
-  };
-}
-
-function renderCounts(book) {
-  if (book.subscriptionAccess) {
-    const segments = [];
-    segments.push(`유형: 밀리 ${book.contentKindLabel || "구독 콘텐츠"}`);
-    if (book.titleMatchLabel) {
-      segments.push(`제목: ${book.titleMatchLabel}`);
-    }
-    if (book.rawStatusText) {
-      segments.push(book.rawStatusText);
-    }
-    return segments.join(" / ");
-  }
-
-  if (book.localLibraryAccess) {
-    const segments = [];
-    segments.push(`위치: ${book.localLibraryName || "미확인"} ${book.localShelfLocation || ""}`.trim());
-    segments.push(`상태: ${book.localLoanStatus || "미확인"}`);
-    if (book.localReturnPlanDate) {
-      segments.push(`반납예정: ${book.localReturnPlanDate}`);
-    }
-    if (book.titleMatchLabel) {
-      segments.push(`제목: ${book.titleMatchLabel}`);
-    }
-    segments.push(`책단비: ${book.isChaekdanbiReservable ? "가능" : "불가"}`);
-    segments.push(`상호대차 수령: ${book.isMutualLoanPickupAvailable ? "가능" : "불가"}`);
-    segments.push(`상호대차: ${book.isMutualLoanAvailable ? "가능" : "불가"}`);
-    segments.push(`무인예약: ${book.isUnmannedReservationAvailable ? "가능" : "불가"}`);
-    segments.push(`타관반납: ${book.isOtherLibraryReturnAvailable ? "가능" : "불가"}`);
-    if (book.isPreferredDaejo) {
-      segments.push("선호: 대조꿈나무/대조동");
-    }
-    return segments.join(" / ");
-  }
-
-  const segments = [];
-  if (book.titleMatchLabel) {
-    segments.push(`제목: ${book.titleMatchLabel}`);
-  }
-  if (book.isLargePrint) {
-    segments.push("큰글자책");
-  }
-  segments.push(`소장: ${book.holdingsCount ?? "미확인"}`);
-  segments.push(`대출가능: ${book.availableCount ?? "미확인"}`);
-  segments.push(`대출중: ${book.loanedCount ?? "미확인"}`);
-  segments.push(`예약: ${book.reservationCount ?? "미확인"}`);
-  return segments.join(" / ");
-}
-
-function getLibraryModelLabel(providerOrModel) {
-  const provider =
-    typeof providerOrModel === "string" ? { libraryModel: providerOrModel } : providerOrModel || {};
-  if (provider.isExternalProvider || provider.externalProvider) {
-    return "외부 구독형 서비스";
-  }
-  if (provider.isPhysicalProvider || provider.physicalProvider || provider.libraryModel === "physical") {
-    return "실물도서 대출";
-  }
-  if (provider.libraryModel === "subscription") {
-    return "구독형 도서관";
-  }
-  return "소장형 도서관";
-}
-
-function formatSearchedAt(isoString) {
-  if (!isoString) {
-    return "";
-  }
-  const date = new Date(isoString);
-  return `분석 시각: ${date.toLocaleString("ko-KR")}`;
-}
+renderSuggestions();
+loadConfig();
+const initialQuery = new URL(location.href).searchParams.get('q')?.trim();
+if (initialQuery) search(initialQuery, false);

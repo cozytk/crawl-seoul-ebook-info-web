@@ -1,0 +1,21 @@
+# Runtime source only; keep local evidence and development tools off deployments.
+.git/
+.vercel/
+.codex/
+.omo/
+.omx/
+node_modules/
+test-results/
+scripts/
+docs/
+*.md
+*.pen
+.env*
+.DS_Store
+*.Zone.Identifier
+*:Zone.Identifier
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+# Retired raster logo; the application uses the generated assets in icons/.
+public/seoul-shelf-logo.png
