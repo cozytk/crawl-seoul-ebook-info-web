@@ -390,8 +390,9 @@ function renderRecommendation(entries) {
   const copy = el('div', 'recommendation-copy');
   copy.append(el('p', '', available ? '먼저 확인해 보세요 · 바로 이용 가능' : '기다려도 읽고 싶은 책이라면'));
   copy.append(el('h3', '', book.title));
+  if (book.author) copy.append(el('p', 'recommendation-author', `저자 ${book.author}`));
   const name = book.localLibraryName || provider.providerName;
-  const condition = provider.isExternalProvider ? '서비스 구독 필요' : formatOf(candidate) === 'physical' ? '도서관 방문 · 회원 대출' : '도서관 회원 이용';
+  const condition = provider.isExternalProvider ? book.subscriptionPlanLabels?.length ? `${book.subscriptionPlanLabels.join(' · ')} 구독 필요` : '서비스 구독 필요' : formatOf(candidate) === 'physical' ? '도서관 방문 · 회원 대출' : '도서관 회원 이용';
   copy.append(el('p', 'recommendation-detail', `${name} · ${formatLabels[formatOf(candidate)]} · ${condition}`));
   const action = link(available ? (formatOf(candidate) === 'physical' ? '소장 위치 확인' : '읽으러 가기') : '예약하러 가기', book.detailURL || provider.searchURL, 'button button-primary', `${name}에서 ${book.title} ${available ? '이용' : '예약'}`);
   container.append(mark, copy, action);
@@ -531,7 +532,13 @@ function renderEntry(entry, groupTitle) {
   title.append(el('span', 'location-name', name));
   if (book.isPreferredDaejo) title.append(el('span', 'preferred-tag', '대조동'));
   location.append(title);
+  if (book.subscriptionPlanLabels?.length) {
+    const plans = el('div', 'subscription-plans');
+    for (const label of book.subscriptionPlanLabels) plans.append(el('span', 'tag tag-subscription', label));
+    location.append(plans);
+  }
   const sub = [];
+  if (book.author) sub.push(`저자 ${book.author}`);
   if (formatOf(entry) === 'physical') {
     if (book.localShelfLocation) sub.push(book.localShelfLocation);
     if (book.localCallNo) sub.push(`청구기호 ${book.localCallNo}`);
@@ -575,6 +582,7 @@ async function loadConfig() {
     state.config = [...(data.libraryProviders || []), ...(data.externalProviders || []), ...(data.physicalProviders || [])];
     $('#source-count').textContent = state.config.length;
     $('#library-count').textContent = `${(data.libraryProviders || []).length}곳`;
+    $('#subscription-count').textContent = `${(data.externalProviders || []).length}곳`;
     if (state.filters.provider !== 'all' && !state.config.some(p => p.id === state.filters.provider)) {
       state.filters.provider = 'all';
       syncURL('replace');
@@ -618,6 +626,7 @@ function renderSources() {
             : result.partialResults ? '일부 확인'
               : result.books?.length ? `${result.books.length}개 이용 정보` : '결과 없음';
       row.append(el('span', `source-state${issue ? ' is-warning' : result?.books?.length ? ' is-ok' : ''}`, status));
+      if (config.subscriptionDescription) row.append(el('p', 'source-description', config.subscriptionDescription));
       if (issue) row.append(el('p', 'source-warning', result.partialResults
         ? `${result.totalResults ?? '?'}개 중 ${result.checkedResults ?? result.books?.length ?? 0}개 확인. ${result.warning || '전체 결과를 확인하지 못했습니다.'}`
         : '연결되지 않아 소장 여부를 확인할 수 없습니다. 도서관에서 직접 검색해 주세요.'));

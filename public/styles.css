@@ -117,6 +117,9 @@ button:disabled { cursor: wait; color: var(--muted); opacity: .7; }
 .recommendation-copy > p:first-child { font-size: 12px; font-weight: 650; color: var(--blue); margin-bottom: 3px; }
 .recommendation h3 { font-size: 19px; font-weight: 700; letter-spacing: -.5px; }
 .recommendation-detail { color: var(--secondary); font-size: 12px; margin-top: 5px; }
+.recommendation-author { color: var(--secondary); font-size: 12px; margin-top: 5px; }
+.subscription-plans { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 6px; }
+.source-description { grid-column: 1 / -1; color: var(--secondary); font-size: 12px; }
 .recommendation .button { flex-shrink: 0; }
 .results-heading { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; margin: 29px 0 20px; }
 .results-heading h2 { font-size: 23px; font-weight: 700; letter-spacing: -.8px; line-height: 1.5; }
@@ -146,6 +149,7 @@ select { min-height: 44px; max-width: 100%; border: 1px solid var(--line); borde
 .book-heading { flex: 1; min-width: 0; }
 .book-labels { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 7px; }
 .tag { padding: 2px 7px; border-radius: 4px; font-size: 10px; font-weight: 600; line-height: 1.6; background: #f0f3f7; color: var(--secondary); }
+.tag-subscription { background: var(--blue-wash); color: var(--blue); font-size: 12px; }
 .tag-exact { background: var(--blue-wash); color: var(--blue); }
 .tag-weak { background: var(--amber-wash); color: var(--amber); }
 .book-heading h3 { font-size: 20px; letter-spacing: -.65px; font-weight: 700; line-height: 1.45; }
@@ -265,11 +269,11 @@ body:has(dialog[open]) { overflow: hidden; }
   .format-filters button { font-size: 12px; gap: 5px; }
   .format-filters span { font-size: 10px; }
   .refine-filters { flex-wrap: wrap; gap: 8px; }
-  .refine-filters label { flex: 1; }
+  .refine-filters label { flex: 1 1 calc(50% - 4px); }
   .refine-filters select { width: 100%; max-width: none; font-size: 11px; padding-left: 10px; }
   .filter-result-count { display: none; }
   .filter-bar { margin-bottom: 16px; }
-  #reset-filters { font-size: 11px; }
+  #reset-filters { font-size: 11px; margin-left: auto; }
   .book-results { gap: 14px; }
   .book-header { padding: 20px 18px; gap: 16px; }
   .book-cover { width: 62px; height: 90px; }

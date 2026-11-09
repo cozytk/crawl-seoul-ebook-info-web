@@ -1,6 +1,6 @@
 # 서울의 서재
 
-서울 전자도서관 14곳, 밀리의서재, 은평구 공공도서관의 실물도서를 한 번에 검색하는 웹 도구입니다. Express API와 HTML/CSS/vanilla JS로 구성됩니다.
+서울 전자도서관 14곳, 밀리의서재·교보문고 SAM·YES24 크레마클럽, 은평구 공공도서관의 실물도서를 한 번에 검색하는 웹 도구입니다. Express API와 HTML/CSS/vanilla JS로 구성됩니다.
 
 ## 실행
 
@@ -21,6 +21,9 @@ npm start
 - 실패한 검색처만 다시 조회하며, 먼저 받은 결과와 선택한 필터를 유지합니다.
 - 최근의 정상 결과는 최대 2분간 재사용합니다. ‘새로 확인’은 캐시를 건너뛰고 현재 상태를 다시 조회합니다.
 - 검색처 안내에서 각 결과의 확인 시각, 연결 오류, 일부 수집 여부를 확인할 수 있습니다.
+- 교보 SAM은 전자책 전용 구독 검색 결과의 프리미엄·무제한 배지를 각각 확인해 표시합니다. 배지가 없는 이용권을 가능하다고 추정하지 않습니다.
+- YES24 크레마클럽은 일반 전자책 판매 검색 대신 크레마클럽 전용 구독 목록과 내서재 추가 가능 표시를 확인합니다.
+- 구독 결과에 저자를 함께 표시합니다. 같은 제목의 다른 책이 있을 수 있으므로 저자·판본을 확인하세요. 실제 열람에는 해당 구독 서비스의 이용권이 필요합니다.
 - 검색 중지·연결 종료는 해당 요청을 취소합니다. 동일한 조회를 다른 사용자가 기다리는 경우 그 사용자의 조회는 계속됩니다.
 - 같은 제목끼리 묶어 보여주며 판본·권차·부제는 임의로 통합하지 않습니다. 추가 소장처의 화면 요소는 펼칠 때 생성하고, 첫 표지가 실패하면 다른 검색처의 표지를 시도합니다.
 
@@ -58,8 +61,10 @@ npm run verify:regressions
 
 ```bash
 npm run verify:ui
+npm run verify:subscriptions
 # 실제 외부 서비스 연결을 포함한 화면 검증
 LIVE_VERIFY=1 BASE_URL=https://crawl-seoul-ebook-info-web-six.vercel.app npm run verify:ui
+LIVE_VERIFY=1 BASE_URL=https://crawl-seoul-ebook-info-web-six.vercel.app npm run verify:subscriptions
 # 전체 검색처의 실제 연결 검사
 npm run verify:providers
 ```

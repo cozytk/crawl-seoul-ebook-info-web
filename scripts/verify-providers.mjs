@@ -34,7 +34,7 @@ if (!parsedProviders.length) {
 }
 
 const supportedIds = new Set(providers.map((provider) => provider.id));
-for (const requiredId of ["eunpyeong-ebook", "seocho", "seoul", "millie", "eunpyeong-public"]) {
+for (const requiredId of ["eunpyeong-ebook", "seocho", "seoul", "millie", "eunpyeong-public", "kyobo-sam", "yes24-cremaclub"]) {
   if (!supportedIds.has(requiredId)) {
     fail(`required provider missing: ${requiredId}`);
   }

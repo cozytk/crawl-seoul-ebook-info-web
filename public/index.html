@@ -3,7 +3,7 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <meta name="description" content="서울의 전자도서관, 밀리의서재, 은평구 실물도서를 한 번에 검색하세요. 책별로 대출과 예약이 가능한 곳을 모아 보여드립니다." />
+    <meta name="description" content="서울 전자도서관, 밀리의서재, 교보 SAM 프리미엄·무제한, YES24 크레마클럽, 은평구 실물도서를 한 번에 검색하세요." />
     <meta name="theme-color" content="#f7f8fa" />
     <title>서울의 서재 — 읽고 싶은 책, 가까운 곳에서</title>
     <link rel="icon" type="image/x-icon" sizes="16x16 32x32 48x48" href="/favicon.ico?v=20260912-search" />
@@ -32,7 +32,7 @@
         <div class="search-heading">
           <p class="eyebrow">책과 나 사이, 더 가까이</p>
           <h1 id="page-title">읽고 싶은 책,<br class="mobile-break" /> 어디에 있을까요?</h1>
-          <p class="search-description">서울의 전자책부터 은평구 실물도서까지 한 번에 찾아보세요.</p>
+          <p class="search-description">도서관 대출부터 밀리·SAM·크레마클럽 구독까지 한 번에 찾아보세요.</p>
         </div>
         <form id="search-form" class="search-form" role="search">
           <label for="q" class="sr-only">책 제목 또는 키워드</label>
@@ -50,7 +50,7 @@
         <div class="coverage-list">
           <div class="coverage-row"><span class="scope-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><rect x="6" y="3" width="12" height="18" rx="2"/><path d="M10 17h4M9 7h6m-6 3h6"/></svg></span><div><h3>서울 전자도서관 <span id="library-count">14곳</span></h3><p>도서관 회원이라면 전자책 대출·구독 열람</p></div><span class="coverage-type">전자책</span></div>
           <div class="coverage-row"><span class="scope-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><path d="M3 5h6c2 0 3 1 3 3v13c0-2-1-3-3-3H3V5Zm18 0h-6c-2 0-3 1-3 3v13c0-2 1-3 3-3h6V5Z"/></svg></span><div><h3>은평구 공공도서관</h3><p>가까운 도서관의 소장 위치와 대출·예약 상태</p></div><span class="coverage-type">실물도서</span></div>
-          <div class="coverage-row"><span class="scope-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><path d="M5 14v-3a7 7 0 0 1 14 0v3M5 12H3v7h4v-7H5Zm14 0h2v7h-4v-7h2Z"/></svg></span><div><h3>밀리의서재</h3><p>구독 중이라면 바로 읽거나 듣는 책</p></div><span class="coverage-type">구독 서비스</span></div>
+          <div class="coverage-row"><span class="scope-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none"><path d="M5 14v-3a7 7 0 0 1 14 0v3M5 12H3v7h4v-7H5Zm14 0h2v7h-4v-7h2Z"/></svg></span><div><h3>구독 서비스 <span id="subscription-count">3곳</span></h3><p>밀리의서재 · 교보 SAM 프리미엄/무제한 · YES24 크레마클럽</p></div><span class="coverage-type">구독 대상 확인</span></div>
         </div>
       </section>
 
@@ -81,7 +81,7 @@
         </div>
         <div id="book-results" class="book-results"></div>
         <button id="load-more" class="button load-more" type="button" hidden></button>
-        <p id="result-note" class="result-note" hidden>같은 제목끼리 묶은 검색 결과입니다. 판본과 최신 대출·예약 상태는 각 서비스에서 확인해 주세요.</p>
+        <p id="result-note" class="result-note" hidden>같은 제목이라도 저자와 판본이 다를 수 있습니다. 상세 도서 정보와 최신 대출·구독 상태는 각 서비스에서 확인해 주세요.</p>
       </section>
       <p id="announcement" class="sr-only" role="status" aria-live="polite" aria-atomic="true"></p>
     </main>

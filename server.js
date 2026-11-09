@@ -2,6 +2,7 @@ import express from "express";
 import { collectSearchPages } from "./lib/search-pagination.js";
 import { withProviderRetry } from "./lib/provider-retry.js";
 import { createSearchRouter } from "./lib/search-runtime.js";
+import { parseSamSearchPage, parseCremaClubSearchPage } from "./lib/subscription-catalogs.js";
 import { load } from "cheerio";
 import iconv from "iconv-lite";
 import path from "node:path";
@@ -39,6 +40,20 @@ const externalProviders = [
     loginURL: "https://www.millie.co.kr/v3/login?isReferer=Y",
     subscriptionListAvailable: true,
     externalProvider: true
+  },
+  {
+    id: "kyobo-sam", name: "교보문고 SAM",
+    baseURL: "https://search.kyobobook.co.kr/search?keyword={searchTerm}&gbCode=SAM&target=sam&cat1=eBook%40SAM",
+    loginURL: "https://order.kyobobook.co.kr/login", isEucKR: false,
+    subscriptionListAvailable: true, externalProvider: true,
+    subscriptionDescription: "도서마다 SAM 프리미엄·무제한 대상 여부를 구분합니다."
+  },
+  {
+    id: "yes24-cremaclub", name: "YES24 크레마클럽",
+    baseURL: "https://cremaclub.yes24.com/BookClub/Search?query={searchTerm}",
+    loginURL: "https://www.yes24.com/Templates/FTLogin.aspx", isEucKR: false,
+    subscriptionListAvailable: true, externalProvider: true,
+    subscriptionDescription: "크레마클럽 전용 구독 도서 목록을 확인합니다."
   }
 ];
 
@@ -61,13 +76,7 @@ const eunpyeongUnified = {
   loginURL: "https://www.eplib.or.kr/intro/program/memberLogin.do"
 };
 
-const samStore = {
-  id: "kyobo-sam",
-  name: "교보 SAM",
-  baseURL: "https://search.kyobobook.co.kr/search?keyword={searchTerm}&gbCode=SAM&target=sam",
-  isEucKR: false,
-  loginURL: "https://order.kyobobook.co.kr/login"
-};
+const samStore = externalProviders.find((provider) => provider.id === "kyobo-sam");
 
 const searchProviders = [...externalProviders, ...libraryProviders, ...physicalProviders];
 
@@ -187,6 +196,8 @@ async function searchProvider(provider, query, { signal: parentSignal } = {}) {
       result = await fetchSeoulBooks(provider, query, controller.signal);
     } else if (provider.id === "millie") {
       result = await fetchMillieBooks(provider, query, controller.signal);
+    } else if (["kyobo-sam", "yes24-cremaclub"].includes(provider.id)) {
+      result = await fetchSubscriptionCatalogBooks(provider, query, controller.signal);
     } else if (provider.id === "eunpyeong-public") {
       result = await fetchEunpyeongPublicBooks(provider, query, controller.signal);
     } else if (provider.apiBaseURL) {
@@ -320,6 +331,25 @@ async function fetchMillieBooks(provider, query, signal) {
     const totalResults = toFiniteNumber(payload.RESP_DATA.total);
     return { response, books: parseBooksFromMilliePayload(payload, query), totalResults, recordCount: list.length,
       hasMore: list.length > 0 && (totalResults === null ? list.length === 20 : page * 20 < totalResults) };
+  }, signal);
+}
+
+async function fetchSubscriptionCatalogBooks(provider, query, signal) {
+  const sam = provider.id === "kyobo-sam";
+  let pageSize = sam ? 60 : 20;
+  return collectProviderSearchPages(async (page, attemptSignal) => {
+    const url = new URL(constructURL(provider, query));
+    url.searchParams.set("page", String(page));
+    if (sam) url.searchParams.set("len", "60");
+    const response = await fetch(url, {
+      headers: { ...queryHeaders, Accept: "text/html", Referer: sam ? "https://sam.kyobobook.co.kr/" : "https://cremaclub.yes24.com/BookClub/Main" },
+      signal: attemptSignal
+    });
+    assertProviderResponse(response);
+    const html = await decodeProviderHtml(response, provider);
+    const parsed = sam ? parseSamSearchPage(html) : parseCremaClubSearchPage(html);
+    if (page === 1 && parsed.recordCount) pageSize = parsed.recordCount;
+    return { response, ...parsed, hasMore: page * pageSize < parsed.totalResults };
   }, signal);
 }
 
