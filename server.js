@@ -45,7 +45,7 @@ const physicalProviders = [
   {
     id: "eunpyeong-public",
     name: "은평구공공도서관 실물도서",
-    baseURL: "https://www.eplib.or.kr/intro/program/alpasq/searchResultList.do?searchType=SIMPLE&searchManageCode=ALL&searchPubFormCode=MO&searchKeyword={searchTerm}",
+    baseURL: "https://www.eplib.or.kr/intro/menu/10003/program/30006/alpasq/searchResultList.do?searchType=SIMPLE&searchManageCode=ALL&searchPubFormCode=MO&searchKeyword={searchTerm}",
     isEucKR: false,
     loginURL: "https://www.eplib.or.kr/intro/program/memberLogin.do",
     physicalProvider: true
@@ -55,7 +55,7 @@ const physicalProviders = [
 const eunpyeongUnified = {
   id: "eunpyeong-unified",
   name: "은평구립도서관 통합검색",
-  baseURL: "https://www.eplib.or.kr/intro/program/alpasq/searchResultList.do?searchType=SIMPLE&searchManageCode=ALL&searchPubFormCode=MO&searchKeyword={searchTerm}",
+  baseURL: "https://www.eplib.or.kr/intro/menu/10003/program/30006/alpasq/searchResultList.do?searchType=SIMPLE&searchManageCode=ALL&searchPubFormCode=MO&searchKeyword={searchTerm}",
   isEucKR: false,
   loginURL: "https://www.eplib.or.kr/intro/program/memberLogin.do"
 };
@@ -371,9 +371,9 @@ function providerDataError(message) {
   return Object.assign(new Error(message), { retryable: true });
 }
 
-function collectProviderSearchPages(fetchPage, signal) {
+function collectProviderSearchPages(fetchPage, signal, retryOptions = {}) {
   return collectSearchPages((page) => withProviderRetry(
-    (attemptSignal) => fetchPage(page, attemptSignal), { signal }
+    (attemptSignal) => fetchPage(page, attemptSignal), { ...retryOptions, signal }
   ));
 }
 
@@ -396,21 +396,32 @@ async function fetchMillieBooks(provider, query, signal) {
 }
 
 async function fetchEunpyeongPublicBooks(provider, query, signal) {
+  // The migrated site sometimes returns an HTTP 200 error page. Allow one more
+  // complete page read, keeping three attempts within the provider's 20s budget.
   return collectProviderSearchPages(async (page, signal) => {
     const url = new URL(constructURL(provider, query));
     url.searchParams.set("currentPageNo", String(page));
     url.searchParams.set("searchDisplay", "80");
-    const response = await fetch(url, { headers: queryHeaders, signal });
+    const response = await fetch(url, {
+      headers: {
+        ...queryHeaders,
+        Accept: "text/html",
+        Referer: new URL("searchSimple.do", url).toString()
+      },
+      signal
+    });
     assertProviderResponse(response);
     const html = await response.text();
     const $ = load(html);
     const totalResults = toFiniteNumber($("#facetCnt").text().replace(/,/g, ""));
     if (totalResults === null || !$("#bookList").length) throw providerDataError("은평 통합검색 응답 구조를 확인할 수 없습니다.");
     const books = parseBooksFromEunpyeongHtml(html, url.toString());
-    const recordCount = $("#bookList .book-list > li").length;
+    // The catalogue renders a placeholder <li> even when its validated total is 0.
+    const recordCount = totalResults === 0 ? 0 : $("#bookList .book-list > li").length;
+    if (totalResults === 0 && books.length) throw providerDataError("은평 검색 결과 수가 도서 정보와 일치하지 않습니다.");
     if (totalResults > 0 && (!recordCount || books.length !== recordCount)) throw providerDataError("은평 검색 결과 일부를 읽지 못했습니다.");
     return { response, books, totalResults, recordCount, hasMore: page * 80 < totalResults };
-  }, signal);
+  }, signal, { attempts: 3, attemptTimeoutMs: 5000, retryDelayMs: 500 });
 }
 
 async function fetchSeoulBooks(provider, query, signal) {

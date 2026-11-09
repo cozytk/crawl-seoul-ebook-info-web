@@ -61,10 +61,18 @@ npm run start
 
 ## 검증
 
-로컬 서버 실행 중 provider 연동을 확인합니다.
+은평 검색의 오류 페이지 재시도, 대출·예약 판정, 0건 응답, 부분 수집을 고정된 공개 검색 HTML로 검증합니다.
+
+```bash
+npm test
+```
+
+로컬 서버 실행 중 데스크톱·모바일 검색 화면과 provider 연동을 확인합니다. `verify:ui`는 고정 응답으로 정상·오류·0건 화면을 검증하며, `LIVE_VERIFY=1`을 지정하면 실제 검색을 수행합니다.
 
 ```bash
 npm run verify:ui
 npm run verify:providers
 npm run verify:regressions
 ```
+
+은평 실물도서는 개편된 홈페이지의 정식 메뉴 검색 경로를 사용합니다. HTTP 200으로 반환되는 오류 페이지는 빈 검색 결과로 취급하지 않으며, provider 전체 20초 제한 안에서 최대 3회 조회합니다. 실제 0건일 때 출력되는 안내용 목록 행은 소장 건수에 포함하지 않습니다.
